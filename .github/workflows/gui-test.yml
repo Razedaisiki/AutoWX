@@ -7,8 +7,8 @@ permissions:
   contents: read
 
 env:
-  TARGET_VERSION: "4.1.11"
-  WECHAT_REPO: "tom-snow/wechat-windows-versions"
+  WECHAT_REPO: "cscnk52/wechat-windows-versions"
+  WECHAT_TAG: "v4.1.11.55"
   GH_PROXY: "https://v4.gh-proxy.org/"
 
 jobs:
@@ -16,19 +16,28 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      - name: Show session
+      # =========================================================
+      # 1. 检查 Windows GUI Session
+      # =========================================================
+      - name: Show session info
         shell: powershell
         run: |
+          Write-Host "=== USER ==="
           whoami
+
+          Write-Host "=== SESSION ==="
           quser
 
-      # 1. 从历史版本仓库中找到 4.1.11
-      - name: Resolve WeChat release
+
+      # =========================================================
+      # 2. 从 cscnk52 GitHub Release 获取真正的安装包 URL
+      # =========================================================
+      - name: Resolve WeChat Release Asset
         shell: powershell
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $api = "https://api.github.com/repos/$env:WECHAT_REPO/releases?per_page=100"
+          $api = "https://api.github.com/repos/$env:WECHAT_REPO/releases/tags/$env:WECHAT_TAG"
 
           $headers = @{
             "Accept"        = "application/vnd.github+json"
@@ -36,42 +45,29 @@ jobs:
             "User-Agent"    = "AutoWX"
           }
 
-          Write-Host "Searching release:"
-          Write-Host $env:TARGET_VERSION
+          Write-Host "Fetching release:"
+          Write-Host $api
 
-          $releases = Invoke-RestMethod `
+          $release = Invoke-RestMethod `
             -Uri $api `
             -Headers $headers
 
-          $release = $releases |
-            Where-Object {
-              $_.tag_name -match [regex]::Escape($env:TARGET_VERSION) -or
-              $_.name     -match [regex]::Escape($env:TARGET_VERSION)
-            } |
-            Select-Object -First 1
-
-          if (-not $release) {
-            Write-Host "Available recent releases:"
-            $releases |
-              Select-Object -First 20 tag_name,name |
-              Format-Table
-
-            throw "Could not find WeChat $env:TARGET_VERSION"
-          }
-
           Write-Host ""
-          Write-Host "Selected release:"
+          Write-Host "Release:"
           Write-Host "Tag:  $($release.tag_name)"
           Write-Host "Name: $($release.name)"
 
           Write-Host ""
-          Write-Host "Assets:"
+          Write-Host "=== Assets ==="
 
-          $release.assets |
-            Select-Object name,size,browser_download_url |
-            Format-Table
+          foreach ($asset in $release.assets) {
+            Write-Host "--------------------------------"
+            Write-Host "Name: $($asset.name)"
+            Write-Host "Size: $($asset.size)"
+            Write-Host "URL:  $($asset.browser_download_url)"
+          }
 
-          # 优先选择体积最大的 Windows exe
+          # 找 exe，优先最大的 exe 安装包
           $asset = $release.assets |
             Where-Object {
               $_.name -match "\.exe$"
@@ -80,42 +76,38 @@ jobs:
             Select-Object -First 1
 
           if (-not $asset) {
-            throw "No EXE asset found."
+            throw "No EXE asset found in release $env:WECHAT_TAG"
           }
 
-          $original = $asset.browser_download_url
-          $proxy = "$env:GH_PROXY$original"
+          $originalUrl = $asset.browser_download_url
+          $proxyUrl = "$env:GH_PROXY$originalUrl"
 
           Write-Host ""
+          Write-Host "======================================"
           Write-Host "Selected asset:"
           Write-Host $asset.name
-
           Write-Host ""
           Write-Host "Original:"
-          Write-Host $original
-
+          Write-Host $originalUrl
           Write-Host ""
-          Write-Host "Accelerated:"
-          Write-Host $proxy
+          Write-Host "Cloudflare v4:"
+          Write-Host $proxyUrl
+          Write-Host "======================================"
 
-          "WECHAT_URL=$proxy" >> $env:GITHUB_ENV
           "WECHAT_FILENAME=$($asset.name)" >> $env:GITHUB_ENV
+          "WECHAT_PROXY_URL=$proxyUrl" >> $env:GITHUB_ENV
 
-          # 如果 GitHub Release Asset 自带 digest，也保存下来
-          if ($asset.digest) {
-            Write-Host "GitHub asset digest:"
-            Write-Host $asset.digest
-            "WECHAT_DIGEST=$($asset.digest)" >> $env:GITHUB_ENV
-          }
 
-      # 2. 通过 Cloudflare v4 节点下载
+      # =========================================================
+      # 3. 通过 Cloudflare v4 下载
+      # =========================================================
       - name: Download WeChat via Cloudflare v4
         shell: powershell
         run: |
           $installer = "$env:TEMP\$env:WECHAT_FILENAME"
 
           Write-Host "Downloading:"
-          Write-Host $env:WECHAT_URL
+          Write-Host $env:WECHAT_PROXY_URL
 
           $start = Get-Date
 
@@ -127,7 +119,7 @@ jobs:
             --connect-timeout 30 `
             --progress-bar `
             -o $installer `
-            $env:WECHAT_URL
+            $env:WECHAT_PROXY_URL
 
           if ($LASTEXITCODE -ne 0) {
             throw "Download failed."
@@ -137,54 +129,49 @@ jobs:
           $sizeMB = (Get-Item $installer).Length / 1MB
 
           Write-Host ""
-          Write-Host "==============================="
+          Write-Host "======================================"
+          Write-Host "Download completed"
           Write-Host ("Size:  {0:N2} MB" -f $sizeMB)
-          Write-Host ("Time:  {0:N2} s" -f $seconds)
+          Write-Host ("Time:  {0:N2} seconds" -f $seconds)
           Write-Host ("Speed: {0:N2} MB/s" -f ($sizeMB / $seconds))
-          Write-Host "==============================="
-
-          $sha = (
-            Get-FileHash $installer -Algorithm SHA256
-          ).Hash.ToLower()
-
-          Write-Host "Downloaded SHA256:"
-          Write-Host $sha
+          Write-Host "======================================"
 
           "WECHAT_INSTALLER=$installer" >> $env:GITHUB_ENV
-          "WECHAT_SHA256=$sha" >> $env:GITHUB_ENV
 
-      # 3. 如果 GitHub Asset 提供 digest，就自动校验
-      - name: Verify download
+
+      # =========================================================
+      # 4. SHA256 校验
+      # =========================================================
+      - name: Verify SHA256
         shell: powershell
         run: |
-          if ($env:WECHAT_DIGEST) {
+          $expected = "c3032fedf2e4025bf7ef87504fd98e46d0fd6db4e5e82ea3d1d0b70e85143cd0"
 
-            $expected = $env:WECHAT_DIGEST `
-              -replace "^sha256:", ""
+          $actual = (
+            Get-FileHash `
+              $env:WECHAT_INSTALLER `
+              -Algorithm SHA256
+          ).Hash.ToLower()
 
-            $expected = $expected.ToLower()
+          Write-Host "Expected:"
+          Write-Host $expected
 
-            Write-Host "Expected:"
-            Write-Host $expected
+          Write-Host ""
+          Write-Host "Actual:"
+          Write-Host $actual
 
-            Write-Host "Actual:"
-            Write-Host $env:WECHAT_SHA256
-
-            if ($expected -ne $env:WECHAT_SHA256) {
-              Remove-Item $env:WECHAT_INSTALLER -Force
-              throw "SHA256 mismatch."
-            }
-
-            Write-Host "SHA256 verification passed."
-
-          } else {
-
-            Write-Host "Release asset does not expose a digest."
-            Write-Host "Calculated SHA256:"
-            Write-Host $env:WECHAT_SHA256
+          if ($actual -ne $expected) {
+            Remove-Item $env:WECHAT_INSTALLER -Force
+            throw "SHA256 mismatch! Installation aborted."
           }
 
-      # 4. 安装
+          Write-Host ""
+          Write-Host "SHA256 verification passed."
+
+
+      # =========================================================
+      # 5. 安装微信
+      # =========================================================
       - name: Install WeChat
         shell: powershell
         run: |
@@ -197,7 +184,11 @@ jobs:
 
           Write-Host "Installation completed."
 
-      # 5. 直接检查新版微信固定路径，不再递归扫描
+
+      # =========================================================
+      # 6. 找微信路径
+      # 不再 Get-ChildItem -Recurse，避免之前 1m50s 的扫描
+      # =========================================================
       - name: Locate WeChat
         shell: powershell
         run: |
@@ -221,20 +212,30 @@ jobs:
           Write-Host "Found:"
           Write-Host $wechat
 
-          Write-Host "Version:"
+          Write-Host ""
+          Write-Host "File version:"
           Write-Host (Get-Item $wechat).VersionInfo.FileVersion
 
           "WECHAT_EXE=$wechat" >> $env:GITHUB_ENV
 
-      # 6. 启动并动态等待 GUI 出现
+
+      # =========================================================
+      # 7. 启动微信，并动态等待窗口
+      # =========================================================
       - name: Launch WeChat
         shell: powershell
         run: |
+          Write-Host "Launching:"
+          Write-Host $env:WECHAT_EXE
+
           Start-Process $env:WECHAT_EXE
+
+          $found = $false
 
           for ($i = 0; $i -lt 30; $i++) {
 
-            $p = Get-Process |
+            $process = Get-Process `
+              -ErrorAction SilentlyContinue |
               Where-Object {
                 $_.ProcessName -match "Weixin|WeChat"
               } |
@@ -243,17 +244,28 @@ jobs:
               } |
               Select-Object -First 1
 
-            if ($p) {
-              Write-Host "WeChat GUI detected after $i seconds."
-              Write-Host "PID: $($p.Id)"
-              Write-Host "Title: $($p.MainWindowTitle)"
+            if ($process) {
+              Write-Host "WeChat window detected after $i seconds."
+              Write-Host "PID: $($process.Id)"
+              Write-Host "Title: $($process.MainWindowTitle)"
+
+              $found = $true
               break
             }
 
             Start-Sleep -Seconds 1
           }
 
-      # 7. 截取二维码
+          if (-not $found) {
+            throw "WeChat GUI was not detected."
+          }
+
+          Start-Sleep -Seconds 2
+
+
+      # =========================================================
+      # 8. 截二维码
+      # =========================================================
       - name: Capture login QR
         shell: powershell
         run: |
@@ -284,6 +296,12 @@ jobs:
           $graphics.Dispose()
           $bitmap.Dispose()
 
+          Write-Host "Login screenshot saved."
+
+
+      # =========================================================
+      # 9. 上传二维码
+      # =========================================================
       - name: Upload login QR
         id: upload-qr
         uses: actions/upload-artifact@v4
@@ -292,17 +310,27 @@ jobs:
           path: wechat-login.png
           retention-days: 1
 
-      - name: Print QR link
+
+      # =========================================================
+      # 10. 输出二维码 Artifact 地址
+      # =========================================================
+      - name: Print QR URL
         shell: powershell
         run: |
           Write-Host ""
-          Write-Host "=============================="
-          Write-Host "SCAN LOGIN QR:"
+          Write-Host "======================================"
+          Write-Host "DOWNLOAD QR AND SCAN NOW:"
           Write-Host "${{ steps.upload-qr.outputs.artifact-url }}"
-          Write-Host "=============================="
+          Write-Host "======================================"
+          Write-Host ""
 
-      # 8. 最多等 10 分钟，但登录成功马上继续
-      - name: Wait for login
+
+      # =========================================================
+      # 11. 等待登录
+      # 最多 10 分钟
+      # 登录成功立即继续
+      # =========================================================
+      - name: Wait for WeChat login
         shell: powershell
         run: |
           Add-Type @"
@@ -325,16 +353,23 @@ jobs:
           }
           "@
 
+          Write-Host "Waiting for login..."
+          Write-Host "Maximum: 10 minutes."
+
           $deadline = (Get-Date).AddMinutes(10)
+          $loggedIn = $false
 
           while ((Get-Date) -lt $deadline) {
 
-            $processes = Get-Process |
+            $processes = Get-Process `
+              -ErrorAction SilentlyContinue |
               Where-Object {
                 $_.ProcessName -match "Weixin|WeChat"
               }
 
             foreach ($p in $processes) {
+
+              $p.Refresh()
 
               if ($p.MainWindowHandle -eq 0) {
                 continue
@@ -349,30 +384,87 @@ jobs:
                 )
               ) {
 
-                $width  = $rect.Right - $rect.Left
+                $width = $rect.Right - $rect.Left
                 $height = $rect.Bottom - $rect.Top
 
                 Write-Host (
-                  "[{0}] {1} {2}x{3}" -f `
+                  "[{0}] PID={1} Process={2} Size={3}x{4}" -f `
                   (Get-Date -Format "HH:mm:ss"),
+                  $p.Id,
                   $p.ProcessName,
                   $width,
                   $height
                 )
 
-                # 主界面通常明显比扫码窗口大
+                # 扫码窗口通常小
+                # 主微信窗口明显更大
                 if ($width -ge 600 -and $height -ge 450) {
 
                   Write-Host ""
+                  Write-Host "======================================"
                   Write-Host "LOGIN SUCCESS DETECTED"
+                  Write-Host "======================================"
 
-                  Start-Sleep -Seconds 3
-                  exit 0
+                  $loggedIn = $true
+                  break
                 }
               }
+            }
+
+            if ($loggedIn) {
+              break
             }
 
             Start-Sleep -Seconds 3
           }
 
-          throw "Login timeout."
+          if (-not $loggedIn) {
+            throw "Login timeout."
+          }
+
+          Start-Sleep -Seconds 3
+
+
+      # =========================================================
+      # 12. 登录成功后截图
+      # =========================================================
+      - name: Capture logged-in screen
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -AssemblyName System.Drawing
+
+          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+
+          $bitmap = New-Object System.Drawing.Bitmap `
+            $bounds.Width,
+            $bounds.Height
+
+          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+
+          $graphics.CopyFromScreen(
+            $bounds.Location,
+            [System.Drawing.Point]::Empty,
+            $bounds.Size
+          )
+
+          $path = "$env:GITHUB_WORKSPACE\wechat-logged-in.png"
+
+          $bitmap.Save(
+            $path,
+            [System.Drawing.Imaging.ImageFormat]::Png
+          )
+
+          $graphics.Dispose()
+          $bitmap.Dispose()
+
+
+      # =========================================================
+      # 13. 上传登录成功后的截图
+      # =========================================================
+      - name: Upload logged-in screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: wechat-logged-in
+          path: wechat-logged-in.png
+          retention-days: 1
