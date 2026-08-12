@@ -354,9 +354,9 @@ jobs:
           "@
 
           Write-Host "Waiting for login..."
-          Write-Host "Maximum: 10 minutes."
+          Write-Host "Maximum: 2 minutes."
 
-          $deadline = (Get-Date).AddMinutes(10)
+          $deadline = (Get-Date).AddMinutes(2)
           $loggedIn = $false
 
           while ((Get-Date) -lt $deadline) {
@@ -398,7 +398,7 @@ jobs:
 
                 # 扫码窗口通常小
                 # 主微信窗口明显更大
-                if ($width -ge 600 -and $height -ge 450) {
+                if ($width -ge 500 -and $height -ge 400) {
 
                   Write-Host ""
                   Write-Host "======================================"
