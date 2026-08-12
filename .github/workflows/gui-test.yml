@@ -106,85 +106,61 @@ jobs:
           Start-Sleep -Seconds 5
 
       # ---------------------------------------------------------
-      # 4. 搜索老版本 WeChat.exe
+      # 4. 固定路径检查
       # ---------------------------------------------------------
       - name: Find WeChat executable
         shell: powershell
         run: |
-          $roots = @(
-            "${env:ProgramFiles(x86)}",
-            "$env:ProgramFiles",
-            "$env:LOCALAPPDATA"
-          )
+          $wechat = "${env:ProgramFiles(x86)}\Tencent\WeChat\WeChat.exe"
 
-          Write-Host "Searching for old WeChat.exe..."
-
-          $wechat = Get-ChildItem `
-            -Path $roots `
-            -Filter "WeChat.exe" `
-            -File `
-            -Recurse `
-            -ErrorAction SilentlyContinue |
-            Where-Object {
-              $_.FullName -match "Tencent|WeChat"
-            } |
-            Select-Object -First 1
-
-          if (-not $wechat) {
-            Write-Host "WeChat.exe not found."
-
-            Write-Host ""
-            Write-Host "Possible Tencent/WeChat directories:"
-
-            Get-ChildItem `
-              -Path $roots `
-              -Directory `
-              -Recurse `
-              -ErrorAction SilentlyContinue |
-              Where-Object {
-                $_.FullName -match "Tencent|WeChat"
-              } |
-              Select-Object -First 100 FullName
-
-            exit 1
+          if (-not (Test-Path $wechat)) {
+            throw "WeChat.exe not found at expected path: $wechat"
           }
 
           Write-Host "Found:"
-          Write-Host $wechat.FullName
+          Write-Host $wechat
 
           Write-Host ""
           Write-Host "File version:"
-          Write-Host $wechat.VersionInfo.FileVersion
+          Write-Host (Get-Item $wechat).VersionInfo.FileVersion
 
-          "WECHAT_EXE=$($wechat.FullName)" >> $env:GITHUB_ENV
+          "WECHAT_EXE=$wechat" >> $env:GITHUB_ENV
 
       # ---------------------------------------------------------
-      # 5. 启动微信
+      # 5. 启动微信（动态等待窗口出现）
       # ---------------------------------------------------------
       - name: Launch WeChat
         shell: powershell
         run: |
-          Write-Host "Launching:"
-          Write-Host $env:WECHAT_EXE
+          Write-Host "Launching WeChat..."
 
           Start-Process $env:WECHAT_EXE
 
-          Write-Host "Waiting for UI..."
-          Start-Sleep -Seconds 20
+          $timeout = 20
+          $found = $false
 
-          Write-Host ""
-          Write-Host "=== WeChat processes ==="
+          for ($i = 0; $i -lt $timeout; $i++) {
 
-          Get-Process |
-            Where-Object {
-              $_.ProcessName -match "WeChat"
-            } |
-            Select-Object `
-              ProcessName,
-              Id,
-              SessionId,
-              MainWindowTitle,
-              Path
+            $process = Get-Process WeChat -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.MainWindowHandle -ne 0
+              } |
+              Select-Object -First 1
+
+            if ($process) {
+              Write-Host "WeChat window detected after $i seconds."
+              Write-Host "PID: $($process.Id)"
+              Write-Host "Title: $($process.MainWindowTitle)"
+              $found = $true
+              break
+            }
+
+            Start-Sleep -Seconds 1
+          }
+
+          if (-not $found) {
+            Write-Host "Warning: WeChat window was not detected within 20 seconds."
+          }
 
       # ---------------------------------------------------------
       # 6. 截图
