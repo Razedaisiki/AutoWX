@@ -1,10 +1,13 @@
-name: WeChat GUI Test
+name: WeChat 3.9.11.16 Test
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  wechat-test:
+  wechat-old-test:
     runs-on: windows-2022
 
     steps:
@@ -17,90 +20,180 @@ jobs:
           Write-Host "=== SESSION ==="
           quser
 
-      - name: Download WeChat
+          Write-Host "=== OS ==="
+          Get-CimInstance Win32_OperatingSystem |
+            Select-Object Caption, Version, OSArchitecture
+
+      # ---------------------------------------------------------
+      # 1. 从 GitHub Release API 找到 3.9.11.16 的真实安装包
+      # ---------------------------------------------------------
+      - name: Find old WeChat release asset
         shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $url = "https://dldir1v6.qq.com/weixin/Universal/Windows/WeChatWin_4.1.11.exe"
-          $installer = "$env:TEMP\WeChatSetup.exe"
+          $api = "https://api.github.com/repos/tom-snow/wechat-windows-versions-x86/releases/tags/v3.9.11.16"
 
-          Write-Host "Downloading WeChat..."
-          Invoke-WebRequest `
-            -Uri $url `
-            -OutFile $installer
-
-          Write-Host "Downloaded:"
-          Get-Item $installer | Select-Object FullName, Length
-
-          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash
-          Write-Host "SHA256: $hash"
-
-          $expected = "C3032FEDF2E4025BF7EF87504FD98E46D0FD6DB4E5E82EA3D1D0B70E85143CD0"
-
-          if ($hash -ne $expected) {
-            throw "SHA256 mismatch!"
+          $headers = @{
+            "Accept"        = "application/vnd.github+json"
+            "Authorization" = "Bearer $env:GITHUB_TOKEN"
+            "User-Agent"    = "AutoWX-GitHub-Actions"
           }
 
-          Write-Host "SHA256 verification passed."
+          Write-Host "Fetching release metadata..."
+          $release = Invoke-RestMethod `
+            -Uri $api `
+            -Headers $headers
 
-      - name: Install WeChat
+          Write-Host "Release:"
+          Write-Host $release.name
+
+          Write-Host ""
+          Write-Host "=== Assets ==="
+
+          $release.assets | ForEach-Object {
+            Write-Host "$($_.name)  size=$($_.size)"
+          }
+
+          $asset = $release.assets |
+            Where-Object {
+              $_.name -match "\.exe$"
+            } |
+            Select-Object -First 1
+
+          if (-not $asset) {
+            throw "No .exe asset found in this release."
+          }
+
+          Write-Host ""
+          Write-Host "Selected:"
+          Write-Host $asset.name
+
+          "WECHAT_ASSET_URL=$($asset.browser_download_url)" >> $env:GITHUB_ENV
+          "WECHAT_ASSET_NAME=$($asset.name)" >> $env:GITHUB_ENV
+
+      # ---------------------------------------------------------
+      # 2. 下载历史安装包
+      # ---------------------------------------------------------
+      - name: Download WeChat 3.9.11.16
         shell: powershell
         run: |
-          $installer = "$env:TEMP\WeChatSetup.exe"
+          $installer = "$env:TEMP\WeChatSetup_x86_3.9.11.16.exe"
 
-          Write-Host "Installing WeChat..."
+          Write-Host "Downloading:"
+          Write-Host $env:WECHAT_ASSET_URL
+
+          Invoke-WebRequest `
+            -Uri $env:WECHAT_ASSET_URL `
+            -OutFile $installer
+
+          Write-Host ""
+          Write-Host "Downloaded:"
+          Get-Item $installer |
+            Select-Object FullName, Length
+
+          "WECHAT_INSTALLER=$installer" >> $env:GITHUB_ENV
+
+      # ---------------------------------------------------------
+      # 3. 验证 SHA256
+      # ---------------------------------------------------------
+      - name: Verify SHA256
+        shell: powershell
+        run: |
+          $expected = "e649b4a616a1e45094858d111cb1306c08cb73b7743718050c93b2b92575ce84"
+
+          $actual = (
+            Get-FileHash `
+              $env:WECHAT_INSTALLER `
+              -Algorithm SHA256
+          ).Hash.ToLower()
+
+          Write-Host "Expected:"
+          Write-Host $expected
+
+          Write-Host "Actual:"
+          Write-Host $actual
+
+          if ($actual -ne $expected) {
+            throw "SHA256 mismatch! Refusing to install."
+          }
+
+          Write-Host ""
+          Write-Host "SHA256 verification passed."
+
+      # ---------------------------------------------------------
+      # 4. 静默安装
+      # ---------------------------------------------------------
+      - name: Install old WeChat
+        shell: powershell
+        run: |
+          Write-Host "Installing WeChat 3.9.11.16 x86..."
 
           Start-Process `
-            -FilePath $installer `
+            -FilePath $env:WECHAT_INSTALLER `
             -ArgumentList "/S" `
             -Wait
 
-          Write-Host "Installer finished."
+          Write-Host "Installer exited."
 
           Start-Sleep -Seconds 5
 
+      # ---------------------------------------------------------
+      # 5. 搜索老版本 WeChat.exe
+      # ---------------------------------------------------------
       - name: Find WeChat executable
         shell: powershell
         run: |
-          Write-Host "Searching for WeChat / Weixin executable..."
-
           $roots = @(
-            "$env:ProgramFiles",
             "${env:ProgramFiles(x86)}",
+            "$env:ProgramFiles",
             "$env:LOCALAPPDATA"
           )
 
+          Write-Host "Searching for old WeChat.exe..."
+
           $wechat = Get-ChildItem `
             -Path $roots `
-            -Include "WeChat.exe","Weixin.exe" `
+            -Filter "WeChat.exe" `
             -File `
             -Recurse `
             -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.FullName -match "Tencent|WeChat"
+            } |
             Select-Object -First 1
 
           if (-not $wechat) {
-            Write-Host "Executable not found."
+            Write-Host "WeChat.exe not found."
 
-            Write-Host "=== Tencent directories ==="
+            Write-Host ""
+            Write-Host "Possible Tencent/WeChat directories:"
 
             Get-ChildItem `
-              "$env:ProgramFiles",
-              "${env:ProgramFiles(x86)}" `
+              -Path $roots `
               -Directory `
               -Recurse `
               -ErrorAction SilentlyContinue |
               Where-Object {
-                $_.FullName -match "Tencent|WeChat|Weixin"
+                $_.FullName -match "Tencent|WeChat"
               } |
-              Select-Object FullName
+              Select-Object -First 100 FullName
 
             exit 1
           }
 
-          Write-Host "Found executable:"
+          Write-Host "Found:"
           Write-Host $wechat.FullName
+
+          Write-Host ""
+          Write-Host "File version:"
+          Write-Host $wechat.VersionInfo.FileVersion
 
           "WECHAT_EXE=$($wechat.FullName)" >> $env:GITHUB_ENV
 
+      # ---------------------------------------------------------
+      # 6. 启动微信
+      # ---------------------------------------------------------
       - name: Launch WeChat
         shell: powershell
         run: |
@@ -109,21 +202,26 @@ jobs:
 
           Start-Process $env:WECHAT_EXE
 
-          Write-Host "Waiting 20 seconds..."
+          Write-Host "Waiting for UI..."
           Start-Sleep -Seconds 20
 
-          Write-Host "=== Related processes ==="
+          Write-Host ""
+          Write-Host "=== WeChat processes ==="
 
           Get-Process |
             Where-Object {
-              $_.ProcessName -match "WeChat|Weixin"
+              $_.ProcessName -match "WeChat"
             } |
             Select-Object `
               ProcessName,
               Id,
               SessionId,
-              MainWindowTitle
+              MainWindowTitle,
+              Path
 
+      # ---------------------------------------------------------
+      # 7. 截图
+      # ---------------------------------------------------------
       - name: Take screenshot
         shell: powershell
         run: |
@@ -147,7 +245,7 @@ jobs:
             $bounds.Size
           )
 
-          $path = "$env:GITHUB_WORKSPACE\wechat-desktop.png"
+          $path = "$env:GITHUB_WORKSPACE\wechat-3.9.11.16.png"
 
           $bitmap.Save(
             $path,
@@ -160,8 +258,11 @@ jobs:
           Write-Host "Screenshot saved:"
           Write-Host $path
 
+      # ---------------------------------------------------------
+      # 8. 上传截图
+      # ---------------------------------------------------------
       - name: Upload screenshot
         uses: actions/upload-artifact@v4
         with:
-          name: wechat-desktop
-          path: wechat-desktop.png
+          name: wechat-3.9.11.16-screenshot
+          path: wechat-3.9.11.16.png
