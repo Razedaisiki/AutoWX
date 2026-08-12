@@ -8,7 +8,7 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      - name: Show system info
+      - name: Show session info
         shell: powershell
         run: |
           Write-Host "=== USER ==="
@@ -17,40 +17,86 @@ jobs:
           Write-Host "=== SESSION ==="
           quser
 
-          Write-Host "=== WINGET ==="
-          winget --version
+      - name: Download WeChat
+        shell: powershell
+        run: |
+          $url = "https://dldir1v6.qq.com/weixin/Universal/Windows/WeChatWin_4.1.11.exe"
+          $installer = "$env:TEMP\WeChatSetup.exe"
+
+          Write-Host "Downloading WeChat..."
+          Invoke-WebRequest `
+            -Uri $url `
+            -OutFile $installer
+
+          Write-Host "Downloaded:"
+          Get-Item $installer | Select-Object FullName, Length
+
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash
+          Write-Host "SHA256: $hash"
+
+          $expected = "C3032FEDF2E4025BF7EF87504FD98E46D0FD6DB4E5E82EA3D1D0B70E85143CD0"
+
+          if ($hash -ne $expected) {
+            throw "SHA256 mismatch!"
+          }
+
+          Write-Host "SHA256 verification passed."
 
       - name: Install WeChat
         shell: powershell
         run: |
-          winget install `
-            --id Tencent.WeChat.Universal `
-            --exact `
-            --silent `
-            --accept-package-agreements `
-            --accept-source-agreements `
-            --disable-interactivity
+          $installer = "$env:TEMP\WeChatSetup.exe"
+
+          Write-Host "Installing WeChat..."
+
+          Start-Process `
+            -FilePath $installer `
+            -ArgumentList "/S" `
+            -Wait
+
+          Write-Host "Installer finished."
+
+          Start-Sleep -Seconds 5
 
       - name: Find WeChat executable
         shell: powershell
         run: |
-          Write-Host "Searching for WeChat.exe..."
+          Write-Host "Searching for WeChat / Weixin executable..."
+
+          $roots = @(
+            "$env:ProgramFiles",
+            "${env:ProgramFiles(x86)}",
+            "$env:LOCALAPPDATA"
+          )
 
           $wechat = Get-ChildItem `
-            "C:\Program Files",
-            "C:\Program Files (x86)",
-            "$env:LOCALAPPDATA" `
-            -Filter WeChat.exe `
+            -Path $roots `
+            -Include "WeChat.exe","Weixin.exe" `
+            -File `
             -Recurse `
             -ErrorAction SilentlyContinue |
             Select-Object -First 1
 
           if (-not $wechat) {
-            Write-Host "WeChat.exe not found"
+            Write-Host "Executable not found."
+
+            Write-Host "=== Tencent directories ==="
+
+            Get-ChildItem `
+              "$env:ProgramFiles",
+              "${env:ProgramFiles(x86)}" `
+              -Directory `
+              -Recurse `
+              -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.FullName -match "Tencent|WeChat|Weixin"
+              } |
+              Select-Object FullName
+
             exit 1
           }
 
-          Write-Host "Found:"
+          Write-Host "Found executable:"
           Write-Host $wechat.FullName
 
           "WECHAT_EXE=$($wechat.FullName)" >> $env:GITHUB_ENV
@@ -63,17 +109,22 @@ jobs:
 
           Start-Process $env:WECHAT_EXE
 
-          Write-Host "Waiting for WeChat UI..."
+          Write-Host "Waiting 20 seconds..."
           Start-Sleep -Seconds 20
 
-          Write-Host "=== WeChat processes ==="
+          Write-Host "=== Related processes ==="
+
           Get-Process |
             Where-Object {
               $_.ProcessName -match "WeChat|Weixin"
             } |
-            Select-Object ProcessName, Id, SessionId, MainWindowTitle
+            Select-Object `
+              ProcessName,
+              Id,
+              SessionId,
+              MainWindowTitle
 
-      - name: Take desktop screenshot
+      - name: Take screenshot
         shell: powershell
         run: |
           Add-Type -AssemblyName System.Windows.Forms
@@ -106,7 +157,7 @@ jobs:
           $graphics.Dispose()
           $bitmap.Dispose()
 
-          Write-Host "Saved screenshot:"
+          Write-Host "Screenshot saved:"
           Write-Host $path
 
       - name: Upload screenshot
