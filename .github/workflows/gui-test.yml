@@ -163,18 +163,166 @@ jobs:
           }
 
       # ---------------------------------------------------------
-      # 6. 截图
+      # 6. 上传二维码截图
       # ---------------------------------------------------------
-      - name: Take screenshot
+      - name: Take login QR screenshot
         shell: powershell
         run: |
           Add-Type -AssemblyName System.Windows.Forms
           Add-Type -AssemblyName System.Drawing
 
           $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bitmap = New-Object System.Drawing.Bitmap `
+            $bounds.Width,
+            $bounds.Height
 
-          Write-Host "Screen:"
-          Write-Host "$($bounds.Width)x$($bounds.Height)"
+          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+
+          $graphics.CopyFromScreen(
+            $bounds.Location,
+            [System.Drawing.Point]::Empty,
+            $bounds.Size
+          )
+
+          $path = "$env:GITHUB_WORKSPACE\wechat-login-qr.png"
+
+          $bitmap.Save(
+            $path,
+            [System.Drawing.Imaging.ImageFormat]::Png
+          )
+
+          $graphics.Dispose()
+          $bitmap.Dispose()
+
+          Write-Host "QR screenshot saved:"
+          Write-Host $path
+
+      - name: Upload login QR
+        id: upload-qr
+        uses: actions/upload-artifact@v4
+        with:
+          name: wechat-login-qr
+          path: wechat-login-qr.png
+          retention-days: 1
+
+      - name: Show QR artifact URL
+        shell: powershell
+        run: |
+          Write-Host ""
+          Write-Host "======================================"
+          Write-Host "DOWNLOAD QR HERE:"
+          Write-Host "${{ steps.upload-qr.outputs.artifact-url }}"
+          Write-Host "======================================"
+          Write-Host ""
+          Write-Host "Open that URL while this job is still running."
+          Write-Host "Download the image and scan it with WeChat."
+
+      # ---------------------------------------------------------
+      # 7. 等待扫码登录
+      # ---------------------------------------------------------
+      - name: Wait for WeChat login
+        shell: powershell
+        run: |
+          Write-Host "Waiting for WeChat login..."
+          Write-Host "Maximum wait: 10 minutes."
+          Write-Host "Once the main window is detected, workflow will continue immediately."
+
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+
+          public class Win32 {
+              [DllImport("user32.dll")]
+              public static extern bool GetWindowRect(
+                  IntPtr hWnd,
+                  out RECT lpRect
+              );
+
+              public struct RECT {
+                  public int Left;
+                  public int Top;
+                  public int Right;
+                  public int Bottom;
+              }
+          }
+          "@
+
+          $deadline = (Get-Date).AddMinutes(10)
+          $loggedIn = $false
+
+          while ((Get-Date) -lt $deadline) {
+
+              $processes = Get-Process WeChat `
+                  -ErrorAction SilentlyContinue
+
+              foreach ($process in $processes) {
+
+                  $process.Refresh()
+
+                  if ($process.MainWindowHandle -eq 0) {
+                      continue
+                  }
+
+                  $rect = New-Object Win32+RECT
+
+                  $ok = [Win32]::GetWindowRect(
+                      $process.MainWindowHandle,
+                      [ref]$rect
+                  )
+
+                  if (-not $ok) {
+                      continue
+                  }
+
+                  $width  = $rect.Right - $rect.Left
+                  $height = $rect.Bottom - $rect.Top
+
+                  Write-Host (
+                      "[{0}] PID={1} Title='{2}' Size={3}x{4}" -f `
+                      (Get-Date -Format "HH:mm:ss"),
+                      $process.Id,
+                      $process.MainWindowTitle,
+                      $width,
+                      $height
+                  )
+
+                  if ($width -ge 600 -and $height -ge 450) {
+
+                      Write-Host ""
+                      Write-Host "======================================"
+                      Write-Host "WeChat main window detected!"
+                      Write-Host "Login appears successful."
+                      Write-Host "======================================"
+
+                      $loggedIn = $true
+                      break
+                  }
+              }
+
+              if ($loggedIn) {
+                  break
+              }
+
+              Start-Sleep -Seconds 3
+          }
+
+          if (-not $loggedIn) {
+              throw "Login was not detected within 10 minutes."
+          }
+
+          Start-Sleep -Seconds 3
+
+      # ---------------------------------------------------------
+      # 8. 登录后截图
+      # ---------------------------------------------------------
+      - name: Take screenshot after login attempt
+        if: always()
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -AssemblyName System.Drawing
+
+          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 
           $bitmap = New-Object System.Drawing.Bitmap `
             $bounds.Width,
@@ -188,7 +336,7 @@ jobs:
             $bounds.Size
           )
 
-          $path = "$env:GITHUB_WORKSPACE\wechat-3.9.11.16.png"
+          $path = "$env:GITHUB_WORKSPACE\wechat-after-login.png"
 
           $bitmap.Save(
             $path,
@@ -198,14 +346,12 @@ jobs:
           $graphics.Dispose()
           $bitmap.Dispose()
 
-          Write-Host "Screenshot saved:"
-          Write-Host $path
+          Write-Host "Final screenshot saved."
 
-      # ---------------------------------------------------------
-      # 7. 上传截图
-      # ---------------------------------------------------------
-      - name: Upload screenshot
+      - name: Upload final screenshot
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: wechat-3.9.11.16-screenshot
-          path: wechat-3.9.11.16.png
+          name: wechat-after-login
+          path: wechat-after-login.png
+          retention-days: 1
