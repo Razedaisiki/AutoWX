@@ -1,0 +1,71 @@
+name: Windows GUI Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  gui-test:
+    runs-on: windows-2022
+
+    steps:
+      - name: Show Windows session info
+        shell: powershell
+        run: |
+          Write-Host "=== USER ==="
+          whoami
+
+          Write-Host "=== SESSION ==="
+          quser
+
+          Write-Host "=== GUI processes ==="
+          Get-Process explorer,dwm -ErrorAction SilentlyContinue |
+            Select-Object Name, Id, SessionId
+
+      - name: Launch Notepad
+        shell: powershell
+        run: |
+          Start-Process notepad.exe
+          Start-Sleep -Seconds 5
+
+          Get-Process notepad -ErrorAction SilentlyContinue |
+            Select-Object Name, Id, SessionId
+
+      - name: Take desktop screenshot
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -AssemblyName System.Drawing
+
+          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+
+          Write-Host "Screen size:"
+          Write-Host "$($bounds.Width) x $($bounds.Height)"
+
+          $bitmap = New-Object System.Drawing.Bitmap `
+            $bounds.Width, $bounds.Height
+
+          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+
+          $graphics.CopyFromScreen(
+            $bounds.Location,
+            [System.Drawing.Point]::Empty,
+            $bounds.Size
+          )
+
+          $path = "$env:GITHUB_WORKSPACE\desktop.png"
+
+          $bitmap.Save(
+            $path,
+            [System.Drawing.Imaging.ImageFormat]::Png
+          )
+
+          $graphics.Dispose()
+          $bitmap.Dispose()
+
+          Write-Host "Screenshot saved to $path"
+
+      - name: Upload desktop screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-screenshot
+          path: desktop.png
