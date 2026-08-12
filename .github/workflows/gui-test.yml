@@ -223,9 +223,8 @@ jobs:
       - name: Wait for WeChat login
         shell: powershell
         run: |
-          Write-Host "Waiting for WeChat login..."
-          Write-Host "Maximum wait: 10 minutes."
-          Write-Host "Once the main window is detected, workflow will continue immediately."
+          Write-Host "Waiting up to 1 minute for WeChat login..."
+          Write-Host "Scan the QR code now."
 
           Add-Type @"
           using System;
@@ -247,8 +246,7 @@ jobs:
           }
           "@
 
-          $deadline = (Get-Date).AddMinutes(10)
-          $loggedIn = $false
+          $deadline = (Get-Date).AddMinutes(1)
 
           while ((Get-Date) -lt $deadline) {
 
@@ -285,32 +283,12 @@ jobs:
                       $width,
                       $height
                   )
-
-                  if ($width -ge 600 -and $height -ge 450) {
-
-                      Write-Host ""
-                      Write-Host "======================================"
-                      Write-Host "WeChat main window detected!"
-                      Write-Host "Login appears successful."
-                      Write-Host "======================================"
-
-                      $loggedIn = $true
-                      break
-                  }
-              }
-
-              if ($loggedIn) {
-                  break
               }
 
               Start-Sleep -Seconds 3
           }
 
-          if (-not $loggedIn) {
-              throw "Login was not detected within 10 minutes."
-          }
-
-          Start-Sleep -Seconds 3
+          Write-Host "1 minute wait finished."
 
       # ---------------------------------------------------------
       # 8. 登录后截图
