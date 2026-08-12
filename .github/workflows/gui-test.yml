@@ -25,77 +25,47 @@ jobs:
             Select-Object Caption, Version, OSArchitecture
 
       # ---------------------------------------------------------
-      # 1. 从 GitHub Release API 找到 3.9.11.16 的真实安装包
+      # 1. 通过 Cloudflare v4 代理下载固定版本
       # ---------------------------------------------------------
-      - name: Find old WeChat release asset
-        shell: powershell
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $api = "https://api.github.com/repos/tom-snow/wechat-windows-versions-x86/releases/tags/v3.9.11.16"
-
-          $headers = @{
-            "Accept"        = "application/vnd.github+json"
-            "Authorization" = "Bearer $env:GITHUB_TOKEN"
-            "User-Agent"    = "AutoWX-GitHub-Actions"
-          }
-
-          Write-Host "Fetching release metadata..."
-          $release = Invoke-RestMethod `
-            -Uri $api `
-            -Headers $headers
-
-          Write-Host "Release:"
-          Write-Host $release.name
-
-          Write-Host ""
-          Write-Host "=== Assets ==="
-
-          $release.assets | ForEach-Object {
-            Write-Host "$($_.name)  size=$($_.size)"
-          }
-
-          $asset = $release.assets |
-            Where-Object {
-              $_.name -match "\.exe$"
-            } |
-            Select-Object -First 1
-
-          if (-not $asset) {
-            throw "No .exe asset found in this release."
-          }
-
-          Write-Host ""
-          Write-Host "Selected:"
-          Write-Host $asset.name
-
-          "WECHAT_ASSET_URL=$($asset.browser_download_url)" >> $env:GITHUB_ENV
-          "WECHAT_ASSET_NAME=$($asset.name)" >> $env:GITHUB_ENV
-
-      # ---------------------------------------------------------
-      # 2. 下载历史安装包
-      # ---------------------------------------------------------
-      - name: Download WeChat 3.9.11.16
+      - name: Download WeChat 3.9.11.16 via Cloudflare v4
         shell: powershell
         run: |
-          $installer = "$env:TEMP\WeChatSetup_x86_3.9.11.16.exe"
+          $url = "https://v4.gh-proxy.org/https://github.com/tom-snow/wechat-windows-versions-x86/releases/download/v3.9.11.16/WeChatSetupX86-3.9.11.16.exe"
 
-          Write-Host "Downloading:"
-          Write-Host $env:WECHAT_ASSET_URL
+          $installer = "$env:TEMP\WeChatSetupX86-3.9.11.16.exe"
 
-          Invoke-WebRequest `
-            -Uri $env:WECHAT_ASSET_URL `
-            -OutFile $installer
+          Write-Host "Downloading WeChat 3.9.11.16..."
+          Write-Host $url
+
+          $start = Get-Date
+
+          curl.exe `
+            -L `
+            --fail `
+            --retry 3 `
+            --retry-delay 3 `
+            --connect-timeout 30 `
+            --progress-bar `
+            -o $installer `
+            $url
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Download failed."
+          }
+
+          $seconds = ((Get-Date) - $start).TotalSeconds
+          $sizeMB = (Get-Item $installer).Length / 1MB
 
           Write-Host ""
-          Write-Host "Downloaded:"
-          Get-Item $installer |
-            Select-Object FullName, Length
+          Write-Host "Download completed."
+          Write-Host ("Size:  {0:N2} MB" -f $sizeMB)
+          Write-Host ("Time:  {0:N2} seconds" -f $seconds)
+          Write-Host ("Speed: {0:N2} MB/s" -f ($sizeMB / $seconds))
 
           "WECHAT_INSTALLER=$installer" >> $env:GITHUB_ENV
 
       # ---------------------------------------------------------
-      # 3. 验证 SHA256
+      # 2. 验证 SHA256
       # ---------------------------------------------------------
       - name: Verify SHA256
         shell: powershell
@@ -108,21 +78,18 @@ jobs:
               -Algorithm SHA256
           ).Hash.ToLower()
 
-          Write-Host "Expected:"
-          Write-Host $expected
-
-          Write-Host "Actual:"
-          Write-Host $actual
+          Write-Host "Expected: $expected"
+          Write-Host "Actual:   $actual"
 
           if ($actual -ne $expected) {
-            throw "SHA256 mismatch! Refusing to install."
+            Remove-Item $env:WECHAT_INSTALLER -Force
+            throw "SHA256 mismatch!"
           }
 
-          Write-Host ""
           Write-Host "SHA256 verification passed."
 
       # ---------------------------------------------------------
-      # 4. 静默安装
+      # 3. 静默安装
       # ---------------------------------------------------------
       - name: Install old WeChat
         shell: powershell
@@ -139,7 +106,7 @@ jobs:
           Start-Sleep -Seconds 5
 
       # ---------------------------------------------------------
-      # 5. 搜索老版本 WeChat.exe
+      # 4. 搜索老版本 WeChat.exe
       # ---------------------------------------------------------
       - name: Find WeChat executable
         shell: powershell
@@ -192,7 +159,7 @@ jobs:
           "WECHAT_EXE=$($wechat.FullName)" >> $env:GITHUB_ENV
 
       # ---------------------------------------------------------
-      # 6. 启动微信
+      # 5. 启动微信
       # ---------------------------------------------------------
       - name: Launch WeChat
         shell: powershell
@@ -220,7 +187,7 @@ jobs:
               Path
 
       # ---------------------------------------------------------
-      # 7. 截图
+      # 6. 截图
       # ---------------------------------------------------------
       - name: Take screenshot
         shell: powershell
@@ -259,7 +226,7 @@ jobs:
           Write-Host $path
 
       # ---------------------------------------------------------
-      # 8. 上传截图
+      # 7. 上传截图
       # ---------------------------------------------------------
       - name: Upload screenshot
         uses: actions/upload-artifact@v4
