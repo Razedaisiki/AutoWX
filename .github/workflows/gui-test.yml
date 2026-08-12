@@ -1,14 +1,14 @@
-name: Windows GUI Test
+name: WeChat GUI Test
 
 on:
   workflow_dispatch:
 
 jobs:
-  gui-test:
+  wechat-test:
     runs-on: windows-2022
 
     steps:
-      - name: Show Windows session info
+      - name: Show system info
         shell: powershell
         run: |
           Write-Host "=== USER ==="
@@ -17,18 +17,61 @@ jobs:
           Write-Host "=== SESSION ==="
           quser
 
-          Write-Host "=== GUI processes ==="
-          Get-Process explorer,dwm -ErrorAction SilentlyContinue |
-            Select-Object Name, Id, SessionId
+          Write-Host "=== WINGET ==="
+          winget --version
 
-      - name: Launch Notepad
+      - name: Install WeChat
         shell: powershell
         run: |
-          Start-Process notepad.exe
-          Start-Sleep -Seconds 5
+          winget install `
+            --id Tencent.WeChat.Universal `
+            --exact `
+            --silent `
+            --accept-package-agreements `
+            --accept-source-agreements `
+            --disable-interactivity
 
-          Get-Process notepad -ErrorAction SilentlyContinue |
-            Select-Object Name, Id, SessionId
+      - name: Find WeChat executable
+        shell: powershell
+        run: |
+          Write-Host "Searching for WeChat.exe..."
+
+          $wechat = Get-ChildItem `
+            "C:\Program Files",
+            "C:\Program Files (x86)",
+            "$env:LOCALAPPDATA" `
+            -Filter WeChat.exe `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+
+          if (-not $wechat) {
+            Write-Host "WeChat.exe not found"
+            exit 1
+          }
+
+          Write-Host "Found:"
+          Write-Host $wechat.FullName
+
+          "WECHAT_EXE=$($wechat.FullName)" >> $env:GITHUB_ENV
+
+      - name: Launch WeChat
+        shell: powershell
+        run: |
+          Write-Host "Launching:"
+          Write-Host $env:WECHAT_EXE
+
+          Start-Process $env:WECHAT_EXE
+
+          Write-Host "Waiting for WeChat UI..."
+          Start-Sleep -Seconds 20
+
+          Write-Host "=== WeChat processes ==="
+          Get-Process |
+            Where-Object {
+              $_.ProcessName -match "WeChat|Weixin"
+            } |
+            Select-Object ProcessName, Id, SessionId, MainWindowTitle
 
       - name: Take desktop screenshot
         shell: powershell
@@ -38,11 +81,12 @@ jobs:
 
           $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 
-          Write-Host "Screen size:"
-          Write-Host "$($bounds.Width) x $($bounds.Height)"
+          Write-Host "Screen:"
+          Write-Host "$($bounds.Width)x$($bounds.Height)"
 
           $bitmap = New-Object System.Drawing.Bitmap `
-            $bounds.Width, $bounds.Height
+            $bounds.Width,
+            $bounds.Height
 
           $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
 
@@ -52,7 +96,7 @@ jobs:
             $bounds.Size
           )
 
-          $path = "$env:GITHUB_WORKSPACE\desktop.png"
+          $path = "$env:GITHUB_WORKSPACE\wechat-desktop.png"
 
           $bitmap.Save(
             $path,
@@ -62,10 +106,11 @@ jobs:
           $graphics.Dispose()
           $bitmap.Dispose()
 
-          Write-Host "Screenshot saved to $path"
+          Write-Host "Saved screenshot:"
+          Write-Host $path
 
-      - name: Upload desktop screenshot
+      - name: Upload screenshot
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-screenshot
-          path: desktop.png
+          name: wechat-desktop
+          path: wechat-desktop.png
