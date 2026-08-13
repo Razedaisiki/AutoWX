@@ -1,4 +1,4 @@
-name: WeChat wx4py Test
+name: VXBot
 
 on:
   workflow_dispatch:
@@ -6,10 +6,25 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: vxbot
+  cancel-in-progress: true
+
 env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+  PYTHONUNBUFFERED: "1"
+
   WECHAT_REPO: "cscnk52/wechat-windows-versions"
   WECHAT_VERSION: "4.1.8"
   GH_PROXY: "https://v4.gh-proxy.org/"
+
+  MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
+  MODEL_API_BASE: ${{ vars.MODEL_API_BASE }}
+  MODEL_NAME: ${{ vars.MODEL_NAME }}
+  VX_GROUPS_JSON: ${{ vars.VX_GROUPS_JSON }}
+
+  BOT_CONTEXT_SIZE: "8"
 
 jobs:
   wechat-test:
@@ -495,39 +510,74 @@ jobs:
           retention-days: 1
 
       # =========================================================
-      # 14. 安装 wx4py
+      # 14. 设置 Python 3.12
+      # =========================================================
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # =========================================================
+      # 15. 配置 UTF-8 控制台
+      # =========================================================
+      - name: Configure UTF-8 console
+        shell: powershell
+        run: |
+          chcp 65001
+
+          [Console]::InputEncoding = `
+            [System.Text.UTF8Encoding]::new($false)
+
+          [Console]::OutputEncoding = `
+            [System.Text.UTF8Encoding]::new($false)
+
+          $OutputEncoding = `
+            [System.Text.UTF8Encoding]::new($false)
+
+          Write-Host "=== Encoding ==="
+
+          python -X utf8 -c `
+            "import sys; print(sys.stdout.encoding); print('中文日志测试成功')"
+
+      # =========================================================
+      # 16. 安装 wx4py（固定已验证版本）
       # =========================================================
       - name: Install wx4py
         shell: powershell
         run: |
-          python --version
-          python -m pip install --upgrade pip
-          python -m pip install wx4py
+          chcp 65001 > $null
 
-          Write-Host "=== installed package ==="
-          python -m pip show wx4py
+          python -X utf8 -m pip install `
+            --upgrade pip
+
+          python -X utf8 -m pip install `
+            "wx4py==0.2.1"
+
+          python -X utf8 -m pip install pywin32
+
+          python -X utf8 -c `
+            "import importlib.metadata as m; print('wx4py version:', m.version('wx4py'))"
 
       # =========================================================
-      # 15. 测试 wx4py 连接
+      # 17. 启动 VXBot
       # =========================================================
-      - name: Test wx4py connection
+      - name: Start VXBot
         shell: powershell
         run: |
-          @'
-          from wx4py import WeChatClient
-          import traceback
+          chcp 65001 > $null
 
-          try:
-              print("Initializing wx4py...", flush=True)
+          [Console]::InputEncoding = `
+            [System.Text.UTF8Encoding]::new($false)
 
-              with WeChatClient(auto_connect=True) as wx:
-                  print("SUCCESS: wx4py connected", flush=True)
-                  print("is_connected:", wx.is_connected, flush=True)
+          [Console]::OutputEncoding = `
+            [System.Text.UTF8Encoding]::new($false)
 
-          except Exception:
-              print("WX4PY FAILED", flush=True)
-              traceback.print_exc()
-              raise
-          '@ | Set-Content "$env:GITHUB_WORKSPACE\test_wx4py.py" -Encoding UTF8
+          $OutputEncoding = `
+            [System.Text.UTF8Encoding]::new($false)
 
-          python "$env:GITHUB_WORKSPACE\test_wx4py.py"
+          Write-Host "======================================"
+          Write-Host "Starting VXBot"
+          Write-Host "======================================"
+
+          python -X utf8 `
+            "$env:GITHUB_WORKSPACE\vxbot.py"
