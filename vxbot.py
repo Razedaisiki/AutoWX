@@ -2,13 +2,7 @@ import os
 import sys
 import json
 import time
-import threading
 import traceback
-
-from pathlib import Path
-
-import win32gui
-from PIL import ImageGrab
 
 
 # ============================================================
@@ -271,33 +265,6 @@ def wait_until_phone_logs_out(
 # VXBot
 # ============================================================
 
-def capture_debug_screens(stop_event):
-    """每秒截一次屏，用于诊断 wx4py 重启微信期间发生了什么"""
-    folder = Path("wx-debug-screens")
-    folder.mkdir(exist_ok=True)
-
-    index = 0
-
-    while not stop_event.is_set() and index < 60:
-        try:
-            index += 1
-            img = ImageGrab.grab(all_screens=True)
-            name = f"{index:03d}_{time.strftime('%H-%M-%S')}.png"
-            img.save(folder / name)
-
-            print(
-                f"[SCREENSHOT] {name}",
-                flush=True,
-            )
-        except Exception as exc:
-            print(
-                f"[SCREENSHOT] failed: {exc!r}",
-                flush=True,
-            )
-
-        stop_event.wait(1)
-
-
 def main():
 
     print("=" * 70, flush=True)
@@ -354,7 +321,13 @@ def main():
             model=model,
             api_key=api_key,
             enable_thinking=False,
+            max_tokens=4096,
         )
+    )
+
+    print(
+        "AI max tokens: 4096",
+        flush=True,
     )
 
     responder = AIResponder(
@@ -380,16 +353,6 @@ def main():
         "Connecting to WeChat...",
         flush=True,
     )
-
-    screenshot_stop = threading.Event()
-
-    screenshot_thread = threading.Thread(
-        target=capture_debug_screens,
-        args=(screenshot_stop,),
-        daemon=True,
-    )
-
-    screenshot_thread.start()
 
     with WeChatClient(
         auto_connect=True

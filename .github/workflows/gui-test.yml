@@ -637,14 +637,3 @@ jobs:
 
           python -X utf8 `
             "$env:GITHUB_WORKSPACE\vxbot.py"
-
-      # =========================================================
-      # 18. 上传 wx4py 调试截图（无论成功失败都传）
-      # =========================================================
-      - name: Upload wx4py debug screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: wx4py-restart-debug
-          path: wx-debug-screens/
-          retention-days: 1
