@@ -777,7 +777,55 @@ jobs:
           python "$env:GITHUB_WORKSPACE\diagnose_wechat.py"
 
       # =========================================================
-      # 18. 测试 wxauto4 连接
+      # 18. 直接读取 wxauto4 真实文件内容
+      # =========================================================
+      - name: Dump actual wxauto4 files
+        shell: powershell
+        run: |
+          @'
+          from pathlib import Path
+          import wxauto4.ui.main
+          import wxauto4.wx
+
+          def dump(path, start, end):
+              path = Path(path)
+
+              print()
+              print("=" * 80)
+              print("FILE:", path)
+              print(f"LINES {start}-{end}")
+              print("=" * 80)
+
+              print("Exists:", path.exists())
+
+              if not path.exists():
+                  return
+
+              data = path.read_bytes()
+
+              print("File size:", len(data))
+              print("First 32 bytes:", data[:32])
+
+              try:
+                  text = data.decode("utf-8")
+              except UnicodeDecodeError:
+                  text = data.decode("utf-8", errors="replace")
+
+              lines = text.splitlines()
+
+              print("Total lines:", len(lines))
+
+              for n in range(start, min(end, len(lines)) + 1):
+                  print(f"{n:4}: {lines[n-1]}")
+
+          dump(wxauto4.ui.main.__file__, 140, 220)
+          dump(wxauto4.wx.__file__, 220, 280)
+          '@ | Set-Content "$env:GITHUB_WORKSPACE\dump_files.py" -Encoding UTF8
+
+          python "$env:GITHUB_WORKSPACE\dump_files.py"
+
+      # =========================================================
+      # 19. 测试 wxauto4 连接
       # =========================================================
       - name: Test wxauto4 connection
         shell: powershell
