@@ -39,7 +39,6 @@ from wx4py import (
 
 from wx4py.core.win32 import (
     find_wechat_window,
-    get_window_class,
 )
 
 
@@ -94,13 +93,14 @@ def load_groups():
 def inspect_wechat_window():
     """
     返回：
-        ("online", hwnd, class_name)
-        ("login", hwnd, class_name)
-        ("missing", None, None)
-        ("unknown", hwnd, class_name)
+        ("online", hwnd, desc)   主界面（大窗口）
+        ("login", hwnd, desc)    登录界面（小窗口）
+        ("missing", None, None)  窗口不存在
+        ("unknown", hwnd, desc)  无法判断
 
-    wx4py 自己也是依赖窗口类型来区分
-    微信主界面与登录界面。
+    通过窗口尺寸区分登录二维码窗口（约 296x388）和
+    主界面（约 576x448）。两者 Win32 类名都是
+    Qt51514QWindowIcon，无法靠类名区分。
     """
 
     try:
@@ -122,26 +122,23 @@ def inspect_wechat_window():
         return "missing", None, None
 
     try:
-        cls = get_window_class(hwnd) or ""
+        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        width = right - left
+        height = bottom - top
     except Exception as exc:
         print(
-            f"[WATCHDOG] GetClassName error: {exc!r}",
+            f"[WATCHDOG] GetWindowRect error: {exc!r}",
             flush=True,
         )
         return "unknown", hwnd, None
 
-    # 已登录主界面
-    if "MainWindow" in cls:
-        return "online", hwnd, cls
+    desc = f"{width}x{height}"
 
-    # 微信登录/未进入主界面的窗口
-    if (
-        "Login" in cls
-        or "Qt" in cls
-    ):
-        return "login", hwnd, cls
+    # 主界面明显更大（登录二维码窗口约 296x388）
+    if width >= 500 and height >= 400:
+        return "online", hwnd, desc
 
-    return "unknown", hwnd, cls
+    return "login", hwnd, desc
 
 
 def wait_until_phone_logs_out(
