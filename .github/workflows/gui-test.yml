@@ -468,3 +468,58 @@ jobs:
           name: wechat-logged-in
           path: wechat-logged-in.png
           retention-days: 1
+
+      # =========================================================
+      # 14. 安装 wxauto4
+      # =========================================================
+      - name: Install wxauto4
+        shell: powershell
+        run: |
+          python --version
+          python -m pip install --upgrade pip
+          python -m pip install wxauto4
+
+          Write-Host "=== installed package ==="
+          python -m pip show wxauto4
+
+      # =========================================================
+      # 15. 测试 wxauto4 连接
+      # =========================================================
+      - name: Test wxauto4 connection
+        shell: powershell
+        run: |
+          @'
+          from wxauto4 import WeChat
+          import traceback
+
+          print("Initializing wxauto4...", flush=True)
+
+          try:
+              wx = WeChat()
+
+              print("SUCCESS: WeChat() initialized", flush=True)
+
+              msgs = wx.GetAllMessage()
+
+              print(f"Messages found: {len(msgs)}", flush=True)
+
+              for msg in msgs[-10:]:
+                  sender = getattr(msg, "sender", "")
+                  content = getattr(msg, "content", "")
+                  msg_type = getattr(msg, "type", "")
+
+                  print(
+                      f"type={msg_type} sender={sender} content={content}",
+                      flush=True
+                  )
+
+          except Exception as e:
+              print("WXAUTO4 TEST FAILED", flush=True)
+              print(repr(e), flush=True)
+              traceback.print_exc()
+              raise
+          '@ | Set-Content `
+              "$env:GITHUB_WORKSPACE\test_wxauto4.py" `
+              -Encoding UTF8
+
+          python "$env:GITHUB_WORKSPACE\test_wxauto4.py"
