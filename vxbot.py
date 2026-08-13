@@ -437,6 +437,24 @@ def main():
 
         time.sleep(5)
 
+        # 临时调试：open_chat 实际打开成功但返回 False，
+        # 对这个群强制返回 True，让监听流程继续（调试完删）
+        real_open_chat = wx.chat_window.open_chat
+
+        def debug_open_chat(target, *args, **kwargs):
+            result = real_open_chat(target, *args, **kwargs)
+
+            if target in groups and not result:
+                print(
+                    "[DEBUG] open_chat returned False, forcing True",
+                    flush=True,
+                )
+                return True
+
+            return result
+
+        wx.chat_window.open_chat = debug_open_chat
+
         # ====================================================
         # 非阻塞启动群监听
         # ====================================================
