@@ -2,10 +2,13 @@ import os
 import sys
 import json
 import time
-import ctypes
+import threading
 import traceback
 
+from pathlib import Path
+
 import win32gui
+from PIL import ImageGrab
 
 
 # ============================================================
@@ -268,46 +271,31 @@ def wait_until_phone_logs_out(
 # VXBot
 # ============================================================
 
-def capture_screenshot(path):
-    """截取当前屏幕并保存，用于诊断重启后微信状态"""
-    try:
-        from PIL import ImageGrab
+def capture_debug_screens(stop_event):
+    """每秒截一次屏，用于诊断 wx4py 重启微信期间发生了什么"""
+    folder = Path("wx-debug-screens")
+    folder.mkdir(exist_ok=True)
 
-        img = ImageGrab.grab()
-        img.save(path)
+    index = 0
 
-        print(f"[SCREENSHOT] saved: {path}", flush=True)
-        return True
+    while not stop_event.is_set() and index < 60:
+        try:
+            index += 1
+            img = ImageGrab.grab(all_screens=True)
+            name = f"{index:03d}_{time.strftime('%H-%M-%S')}.png"
+            img.save(folder / name)
 
-    except Exception as exc:
-        print(f"[SCREENSHOT] failed: {exc!r}", flush=True)
-        return False
+            print(
+                f"[SCREENSHOT] {name}",
+                flush=True,
+            )
+        except Exception as exc:
+            print(
+                f"[SCREENSHOT] failed: {exc!r}",
+                flush=True,
+            )
 
-
-def close_wechat_popup():
-    """关闭 wx4py 重启微信后可能再次出现的弹窗"""
-    try:
-        hwnd = find_wechat_window()
-        if not hwnd:
-            return
-
-        win32gui.SetForegroundWindow(hwnd)
-
-        # 给微信弹窗一点时间稳定下来
-        time.sleep(2)
-
-        user32 = ctypes.windll.user32
-
-        # ESC（按下 + 松开）
-        user32.keybd_event(0x1B, 0, 0, 0)
-        user32.keybd_event(0x1B, 0, 2, 0)
-
-        time.sleep(2)
-    except Exception as exc:
-        print(
-            f"[POPUP] close_wechat_popup warning: {exc!r}",
-            flush=True,
-        )
+        stop_event.wait(1)
 
 
 def main():
@@ -393,6 +381,16 @@ def main():
         flush=True,
     )
 
+    screenshot_stop = threading.Event()
+
+    screenshot_thread = threading.Thread(
+        target=capture_debug_screens,
+        args=(screenshot_stop,),
+        daemon=True,
+    )
+
+    screenshot_thread.start()
+
     with WeChatClient(
         auto_connect=True
     ) as wx:
@@ -407,25 +405,6 @@ def main():
             raise RuntimeError(
                 "wx4py connection failed."
             )
-
-        # wx4py 可能因为 RunningState 自动重启微信，
-        # 重启后微信可能再次弹出更新/提示窗口。
-        print(
-            "Waiting for WeChat restart popup...",
-            flush=True,
-        )
-
-        time.sleep(3)
-
-        close_wechat_popup()
-
-        # 截图：看重启 + 关弹窗后微信的实际状态
-        shot = os.path.join(
-            os.environ.get("GITHUB_WORKSPACE", "."),
-            "after-restart.png",
-        )
-
-        capture_screenshot(shot)
 
         print()
         print("=" * 70, flush=True)

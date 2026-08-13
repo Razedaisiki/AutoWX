@@ -639,12 +639,12 @@ jobs:
             "$env:GITHUB_WORKSPACE\vxbot.py"
 
       # =========================================================
-      # 18. 上传重启后截图（无论成功失败都传）
+      # 18. 上传 wx4py 调试截图（无论成功失败都传）
       # =========================================================
-      - name: Upload after-restart screenshot
+      - name: Upload wx4py debug screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: after-restart
-          path: after-restart.png
+          name: wx4py-restart-debug
+          path: wx-debug-screens/
           retention-days: 1
