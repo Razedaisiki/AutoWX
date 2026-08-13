@@ -1,4 +1,4 @@
-name: WeChat 4.1 Login Test
+name: WeChat wx4py Test
 
 on:
   workflow_dispatch:
@@ -28,7 +28,6 @@ jobs:
           Write-Host "=== SESSION ==="
           quser
 
-
       # =========================================================
       # 2. 自动寻找最新的 4.1.8.x Release
       # =========================================================
@@ -48,7 +47,6 @@ jobs:
           $all = @()
 
           for ($page = 1; $page -le 5; $page++) {
-
             $api = "https://api.github.com/repos/$repo/releases?per_page=100&page=$page"
 
             $batch = Invoke-RestMethod `
@@ -105,14 +103,12 @@ jobs:
           "WECHAT_FILENAME=$($asset.name)" >> $env:GITHUB_ENV
           "WECHAT_PROXY_URL=$proxy" >> $env:GITHUB_ENV
 
-          # 如果 GitHub Asset 自带 digest，保存下来供校验
           if ($asset.digest) {
             Write-Host ""
             Write-Host "GitHub asset digest:"
             Write-Host $asset.digest
             "WECHAT_DIGEST=$($asset.digest)" >> $env:GITHUB_ENV
           }
-
 
       # =========================================================
       # 3. 通过 Cloudflare v4 下载
@@ -154,7 +150,6 @@ jobs:
 
           "WECHAT_INSTALLER=$installer" >> $env:GITHUB_ENV
 
-
       # =========================================================
       # 4. SHA256 校验（有 digest 则校验，否则仅打印）
       # =========================================================
@@ -171,7 +166,6 @@ jobs:
           Write-Host $actual
 
           if ($env:WECHAT_DIGEST) {
-
             $expected = $env:WECHAT_DIGEST `
               -replace "^sha256:", ""
 
@@ -188,14 +182,11 @@ jobs:
 
             Write-Host ""
             Write-Host "SHA256 verification passed."
-
           } else {
-
             Write-Host ""
             Write-Host "No digest available from release asset."
             Write-Host "Record the SHA256 above to pin it later."
           }
-
 
       # =========================================================
       # 5. 安装微信
@@ -212,10 +203,8 @@ jobs:
 
           Write-Host "Installation completed."
 
-
       # =========================================================
       # 6. 找微信路径
-      # 不再 Get-ChildItem -Recurse，避免之前 1m50s 的扫描
       # =========================================================
       - name: Locate WeChat
         shell: powershell
@@ -246,9 +235,8 @@ jobs:
 
           "WECHAT_EXE=$wechat" >> $env:GITHUB_ENV
 
-
       # =========================================================
-      # 7. 启动微信，并动态等待窗口
+      # 7. 启动微信并动态等待窗口
       # =========================================================
       - name: Launch WeChat
         shell: powershell
@@ -261,7 +249,6 @@ jobs:
           $found = $false
 
           for ($i = 0; $i -lt 30; $i++) {
-
             $process = Get-Process `
               -ErrorAction SilentlyContinue |
               Where-Object {
@@ -289,7 +276,6 @@ jobs:
           }
 
           Start-Sleep -Seconds 2
-
 
       # =========================================================
       # 8. 截二维码
@@ -326,7 +312,6 @@ jobs:
 
           Write-Host "Login screenshot saved."
 
-
       # =========================================================
       # 9. 上传二维码
       # =========================================================
@@ -337,7 +322,6 @@ jobs:
           name: wechat-login
           path: wechat-login.png
           retention-days: 1
-
 
       # =========================================================
       # 10. 输出二维码 Artifact 地址
@@ -352,11 +336,8 @@ jobs:
           Write-Host "======================================"
           Write-Host ""
 
-
       # =========================================================
-      # 11. 等待登录
-      # 最多 10 分钟
-      # 登录成功立即继续
+      # 11. 等待登录（最多 2 分钟）
       # =========================================================
       - name: Wait for WeChat login
         shell: powershell
@@ -388,7 +369,6 @@ jobs:
           $loggedIn = $false
 
           while ((Get-Date) -lt $deadline) {
-
             $processes = Get-Process `
               -ErrorAction SilentlyContinue |
               Where-Object {
@@ -396,7 +376,6 @@ jobs:
               }
 
             foreach ($p in $processes) {
-
               $p.Refresh()
 
               if ($p.MainWindowHandle -eq 0) {
@@ -405,13 +384,7 @@ jobs:
 
               $rect = New-Object Win32+RECT
 
-              if (
-                [Win32]::GetWindowRect(
-                  $p.MainWindowHandle,
-                  [ref]$rect
-                )
-              ) {
-
+              if ([Win32]::GetWindowRect($p.MainWindowHandle, [ref]$rect)) {
                 $width = $rect.Right - $rect.Left
                 $height = $rect.Bottom - $rect.Top
 
@@ -424,10 +397,7 @@ jobs:
                   $height
                 )
 
-                # 扫码窗口通常小
-                # 主微信窗口明显更大
                 if ($width -ge 500 -and $height -ge 400) {
-
                   Write-Host ""
                   Write-Host "======================================"
                   Write-Host "LOGIN SUCCESS DETECTED"
@@ -452,9 +422,40 @@ jobs:
 
           Start-Sleep -Seconds 3
 
+      # =========================================================
+      # 12. 关闭可能的弹窗
+      # =========================================================
+      - name: Normalize WeChat window
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+
+          public class Win32 {
+              [DllImport("user32.dll")]
+              public static extern bool SetForegroundWindow(IntPtr hWnd);
+          }
+          "@
+
+          $p = Get-Process |
+            Where-Object {
+              $_.ProcessName -match "Weixin|WeChat" -and
+              $_.MainWindowHandle -ne 0
+            } |
+            Select-Object -First 1
+
+          if ($p) {
+            [Win32]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
+            Start-Sleep -Seconds 1
+            [System.Windows.Forms.SendKeys]::SendWait("{ESC}")
+            Start-Sleep -Seconds 2
+          }
 
       # =========================================================
-      # 12. 登录成功后截图
+      # 13. 登录成功后截图
       # =========================================================
       - name: Capture logged-in screen
         shell: powershell
@@ -486,10 +487,6 @@ jobs:
           $graphics.Dispose()
           $bitmap.Dispose()
 
-
-      # =========================================================
-      # 13. 上传登录成功后的截图
-      # =========================================================
       - name: Upload logged-in screenshot
         uses: actions/upload-artifact@v4
         with:
@@ -498,519 +495,39 @@ jobs:
           retention-days: 1
 
       # =========================================================
-      # 14. 关闭微信更新说明弹窗
+      # 14. 安装 wx4py
       # =========================================================
-      - name: Normalize WeChat window
-        shell: powershell
-        run: |
-          Add-Type -AssemblyName System.Windows.Forms
-
-          Add-Type @"
-          using System;
-          using System.Runtime.InteropServices;
-
-          public class Win32 {
-              [DllImport("user32.dll")]
-              public static extern bool SetForegroundWindow(IntPtr hWnd);
-          }
-          "@
-
-          Write-Host "=== BEFORE ==="
-
-          Get-Process |
-            Where-Object {
-              $_.ProcessName -match "Weixin|WeChat"
-            } |
-            ForEach-Object {
-              $_.Refresh()
-
-              Write-Host (
-                "PID={0} Process={1} Title='{2}' Handle={3}" -f `
-                $_.Id,
-                $_.ProcessName,
-                $_.MainWindowTitle,
-                $_.MainWindowHandle
-              )
-            }
-
-          $p = Get-Process |
-            Where-Object {
-              $_.ProcessName -match "Weixin|WeChat" -and
-              $_.MainWindowHandle -ne 0
-            } |
-            Select-Object -First 1
-
-          if ($p) {
-              [Win32]::SetForegroundWindow(
-                  $p.MainWindowHandle
-              ) | Out-Null
-
-              Start-Sleep -Seconds 1
-
-              [System.Windows.Forms.SendKeys]::SendWait("{ESC}")
-
-              Start-Sleep -Seconds 2
-          }
-
-      # =========================================================
-      # 15. 安装 wxauto4
-      # =========================================================
-      - name: Install wxauto4
+      - name: Install wx4py
         shell: powershell
         run: |
           python --version
           python -m pip install --upgrade pip
-          python -m pip install wxauto4
+          python -m pip install wx4py
 
           Write-Host "=== installed package ==="
-          python -m pip show wxauto4
+          python -m pip show wx4py
 
       # =========================================================
-      # 16. 打印已安装的 wxauto4 源码
+      # 15. 测试 wx4py 连接
       # =========================================================
-      - name: Dump installed wxauto4 source
+      - name: Test wx4py connection
         shell: powershell
         run: |
           @'
-          import inspect
-          import wxauto4
-          import wxauto4.ui.main
-          import wxauto4.wx
-
-          print("=" * 70)
-          print("wxauto4 location")
-          print("=" * 70)
-          print(wxauto4.__file__)
-
-          print()
-          print("=" * 70)
-          print("ui.main location")
-          print("=" * 70)
-          print(inspect.getsourcefile(wxauto4.ui.main))
-
-          print()
-          print("=" * 70)
-          print("Classes in ui.main")
-          print("=" * 70)
-
-          for name in dir(wxauto4.ui.main):
-              if "WeChat" in name:
-                  obj = getattr(wxauto4.ui.main, name)
-
-                  if inspect.isclass(obj):
-                      print()
-                      print("###", name)
-
-                      try:
-                          print(inspect.getsource(obj.__init__))
-                      except Exception as e:
-                          print("Cannot read source:", repr(e))
-
-          print()
-          print("=" * 70)
-          print("wx.WeChat init")
-          print("=" * 70)
-
-          try:
-              print(inspect.getsource(wxauto4.wx.WeChat.__init__))
-          except Exception as e:
-              print("Cannot read source:", repr(e))
-
-          '@ | Set-Content dump_wxauto.py -Encoding UTF8
-
-          python dump_wxauto.py
-
-      # =========================================================
-      # 17. 窗口体检：诊断 Win32 / UIA 视图
-      # =========================================================
-      - name: Diagnose WeChat window
-        shell: powershell
-        run: |
-          python -m pip install pywinauto psutil
-
-          @'
-          import ctypes
-          import psutil
-          from pywinauto import Desktop
-
-          print("=" * 70)
-          print("WECHAT PROCESS INFO")
-          print("=" * 70)
-
-          wechat_pids = []
-
-          for p in psutil.process_iter(
-              ["pid", "name", "exe", "username"]
-          ):
-              try:
-                  name = (p.info["name"] or "").lower()
-
-                  if "wechat" in name or "weixin" in name:
-                      pid = p.info["pid"]
-                      wechat_pids.append(pid)
-
-                      session = ctypes.c_ulong()
-
-                      ok = ctypes.windll.kernel32.ProcessIdToSessionId(
-                          pid,
-                          ctypes.byref(session)
-                      )
-
-                      print(
-                          f"PID={pid} "
-                          f"Name={p.info['name']} "
-                          f"Session={session.value if ok else '?'} "
-                          f"User={p.info['username']} "
-                          f"EXE={p.info['exe']}"
-                      )
-
-              except Exception as e:
-                  print("PROCESS ERROR:", repr(e))
-
-          print()
-          print("WeChat PIDs:", wechat_pids)
-
-          print()
-          print("=" * 70)
-          print("WIN32 WINDOWS")
-          print("=" * 70)
-
-          try:
-              windows = Desktop(
-                  backend="win32"
-              ).windows()
-
-              for w in windows:
-
-                  try:
-                      pid = w.process_id()
-
-                      if pid not in wechat_pids:
-                          continue
-
-                      print(
-                          f"PID={pid} "
-                          f"Handle={hex(w.handle)} "
-                          f"Title={w.window_text()!r} "
-                          f"Class={w.class_name()!r} "
-                          f"Visible={w.is_visible()} "
-                          f"Rect={w.rectangle()}"
-                      )
-
-                  except Exception as e:
-                      print("WIN32 WINDOW ERROR:", repr(e))
-
-          except Exception as e:
-              print("WIN32 BACKEND ERROR:", repr(e))
-
-          print()
-          print("=" * 70)
-          print("UI AUTOMATION WINDOWS")
-          print("=" * 70)
-
-          try:
-              windows = Desktop(
-                  backend="uia"
-              ).windows()
-
-              found = 0
-
-              for w in windows:
-
-                  try:
-                      pid = w.process_id()
-
-                      if pid not in wechat_pids:
-                          continue
-
-                      found += 1
-
-                      info = w.element_info
-
-                      print(
-                          f"PID={pid} "
-                          f"Handle={hex(w.handle)} "
-                          f"Title={w.window_text()!r} "
-                          f"Class={info.class_name!r} "
-                          f"ControlType={info.control_type!r} "
-                          f"Visible={w.is_visible()} "
-                          f"Rect={w.rectangle()}"
-                      )
-
-                      print("--- UIA children ---")
-
-                      children = w.descendants(depth=2)
-
-                      for child in children[:30]:
-
-                          try:
-                              ci = child.element_info
-
-                              print(
-                                  f"  Name={ci.name!r} "
-                                  f"Class={ci.class_name!r} "
-                                  f"Type={ci.control_type!r} "
-                                  f"AutoID={ci.automation_id!r}"
-                              )
-
-                          except Exception:
-                              pass
-
-                  except Exception as e:
-                      print("UIA WINDOW ERROR:", repr(e))
-
-              print()
-              print("UIA WeChat windows found:", found)
-
-          except Exception as e:
-              print("UIA BACKEND ERROR:", repr(e))
-
-          print()
-          print("=" * 70)
-          print("END")
-          print("=" * 70)
-
-          '@ | Set-Content `
-              "$env:GITHUB_WORKSPACE\diagnose_wechat.py" `
-              -Encoding UTF8
-
-          python "$env:GITHUB_WORKSPACE\diagnose_wechat.py"
-
-      # =========================================================
-      # 18. 直接读取 wxauto4 真实文件内容
-      # =========================================================
-      - name: Dump actual wxauto4 files
-        shell: powershell
-        run: |
-          @'
-          from pathlib import Path
-          import wxauto4.ui.main
-          import wxauto4.wx
-
-          def dump(path, start, end):
-              path = Path(path)
-
-              print()
-              print("=" * 80)
-              print("FILE:", path)
-              print(f"LINES {start}-{end}")
-              print("=" * 80)
-
-              print("Exists:", path.exists())
-
-              if not path.exists():
-                  return
-
-              data = path.read_bytes()
-
-              print("File size:", len(data))
-              print("First 32 bytes:", data[:32])
-
-              try:
-                  text = data.decode("utf-8")
-              except UnicodeDecodeError:
-                  text = data.decode("utf-8", errors="replace")
-
-              lines = text.splitlines()
-
-              print("Total lines:", len(lines))
-
-              for n in range(start, min(end, len(lines)) + 1):
-                  print(f"{n:4}: {lines[n-1]}")
-
-          dump(wxauto4.ui.main.__file__, 140, 220)
-          dump(wxauto4.wx.__file__, 220, 280)
-          '@ | Set-Content "$env:GITHUB_WORKSPACE\dump_files.py" -Encoding UTF8
-
-          python "$env:GITHUB_WORKSPACE\dump_files.py"
-
-      # =========================================================
-      # 19. 用 wxauto4 自带的 UIA 层检查微信窗口
-      # =========================================================
-      - name: Diagnose using wxauto4 own UIA
-        shell: powershell
-        run: |
-          python -m pip install pywin32
-
-          @'
-          import win32gui
+          from wx4py import WeChatClient
           import traceback
-          import wxauto4.uia.uiautomation as uia
-
-          print("=" * 70)
-          print("FIND WECHAT HWND")
-          print("=" * 70)
-
-          candidates = []
-
-          def enum_cb(hwnd, _):
-              try:
-                  cls = win32gui.GetClassName(hwnd)
-                  title = win32gui.GetWindowText(hwnd)
-                  visible = win32gui.IsWindowVisible(hwnd)
-
-                  if cls == "Qt51514QWindowIcon":
-                      print(
-                          f"HWND={hex(hwnd)} "
-                          f"Title={title!r} "
-                          f"Class={cls!r} "
-                          f"Visible={visible}"
-                      )
-
-                      if visible:
-                          candidates.append(hwnd)
-
-              except Exception:
-                  pass
-
-          win32gui.EnumWindows(enum_cb, None)
-
-          if not candidates:
-              raise RuntimeError("No visible Qt51514QWindowIcon found")
-
-          hwnd = candidates[0]
-
-          print()
-          print("Selected HWND:", hex(hwnd))
-
-          print()
-          print("=" * 70)
-          print("WXAUTO4 UIA")
-          print("=" * 70)
 
           try:
-              control = uia.ControlFromHandle(hwnd)
+              print("Initializing wx4py...", flush=True)
 
-              print("Control object :", control)
-              print("Name           :", repr(control.Name))
-              print("ClassName      :", repr(control.ClassName))
-              print("ControlType    :", repr(control.ControlTypeName))
-              print("Handle         :", hex(control.NativeWindowHandle))
-
-              print()
-              print("=== direct children ===")
-
-              children = control.GetChildren()
-
-              print("Children count:", len(children))
-
-              for i, child in enumerate(children[:50]):
-                  try:
-                      print(
-                          f"[{i}] "
-                          f"Name={child.Name!r} "
-                          f"Class={child.ClassName!r} "
-                          f"Type={child.ControlTypeName!r} "
-                          f"Handle={hex(child.NativeWindowHandle)}"
-                      )
-                  except Exception as e:
-                      print(f"[{i}] ERROR:", repr(e))
-
-              print()
-              print("=== descendants search ===")
-
-              found = []
-
-              def walk(node, depth=0):
-                  if depth > 5:
-                      return
-
-                  try:
-                      items = node.GetChildren()
-                  except Exception:
-                      return
-
-                  for child in items:
-                      try:
-                          found.append((
-                              depth,
-                              child.Name,
-                              child.ClassName,
-                              child.ControlTypeName
-                          ))
-
-                          walk(child, depth + 1)
-
-                      except Exception:
-                          pass
-
-              walk(control)
-
-              print("Total descendants:", len(found))
-
-              for item in found[:100]:
-                  depth, name, cls, typ = item
-
-                  print(
-                      "  " * depth +
-                      f"Name={name!r} "
-                      f"Class={cls!r} "
-                      f"Type={typ!r}"
-                  )
+              with WeChatClient(auto_connect=True) as wx:
+                  print("SUCCESS: wx4py connected", flush=True)
+                  print("is_connected:", wx.is_connected, flush=True)
 
           except Exception:
-              print("wxauto4 UIA FAILED")
-              traceback.print_exc()
-
-          '@ | Set-Content `
-              "$env:GITHUB_WORKSPACE\test_wxauto_uia.py" `
-              -Encoding UTF8
-
-          python "$env:GITHUB_WORKSPACE\test_wxauto_uia.py"
-
-      # =========================================================
-      # 20. 测试 wxauto4 连接（monkey patch 窗口匹配条件）
-      # =========================================================
-      - name: Test wxauto4 connection
-        shell: powershell
-        run: |
-          @'
-          from wxauto4 import WeChat
-          from wxauto4.ui.main import WeChatMainWnd
-          import traceback
-          import time
-
-          print("Waiting for WeChat UI...", flush=True)
-          time.sleep(3)
-
-          print("=== BEFORE patch ===", flush=True)
-          print("_ui_cls_name :", WeChatMainWnd._ui_cls_name, flush=True)
-          print("_win_cls_name:", WeChatMainWnd._win_cls_name, flush=True)
-          print("_ui_name     :", WeChatMainWnd._ui_name, flush=True)
-
-          # 把 wxauto4 期待的窗口条件 patch 成 GitHub runner 实际暴露的值
-          WeChatMainWnd._ui_cls_name = "Qt51514QWindowIcon"
-          WeChatMainWnd._win_cls_name = "Qt51514QWindowIcon"
-          WeChatMainWnd._ui_name = "Weixin"
-
-          print("=== AFTER patch ===", flush=True)
-          print("_ui_cls_name :", WeChatMainWnd._ui_cls_name, flush=True)
-          print("_win_cls_name:", WeChatMainWnd._win_cls_name, flush=True)
-          print("_ui_name     :", WeChatMainWnd._ui_name, flush=True)
-
-          try:
-              print("Initializing wxauto4...", flush=True)
-
-              wx = WeChat(ads=False)
-
-              print("SUCCESS: wxauto4 connected", flush=True)
-
-              msgs = wx.GetAllMessage()
-
-              print("Messages:", len(msgs), flush=True)
-
-              for msg in msgs[-10:]:
-                  print(
-                      getattr(msg, "sender", ""),
-                      getattr(msg, "content", ""),
-                      flush=True
-                  )
-
-          except Exception:
+              print("WX4PY FAILED", flush=True)
               traceback.print_exc()
               raise
-          '@ | Set-Content `
-              "$env:GITHUB_WORKSPACE\test_wxauto4.py" `
-              -Encoding UTF8
+          '@ | Set-Content "$env:GITHUB_WORKSPACE\test_wx4py.py" -Encoding UTF8
 
-          python "$env:GITHUB_WORKSPACE\test_wxauto4.py"
+          python "$env:GITHUB_WORKSPACE\test_wx4py.py"
