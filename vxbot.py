@@ -271,6 +271,22 @@ def wait_until_phone_logs_out(
 # VXBot
 # ============================================================
 
+def capture_screenshot(path):
+    """截取当前屏幕并保存，用于诊断重启后微信状态"""
+    try:
+        from PIL import ImageGrab
+
+        img = ImageGrab.grab()
+        img.save(path)
+
+        print(f"[SCREENSHOT] saved: {path}", flush=True)
+        return True
+
+    except Exception as exc:
+        print(f"[SCREENSHOT] failed: {exc!r}", flush=True)
+        return False
+
+
 def close_wechat_popup():
     """关闭 wx4py 重启微信后可能再次出现的弹窗"""
     try:
@@ -405,6 +421,14 @@ def main():
         time.sleep(3)
 
         close_wechat_popup()
+
+        # 截图：看重启 + 关弹窗后微信的实际状态
+        shot = os.path.join(
+            os.environ.get("GITHUB_WORKSPACE", "."),
+            "after-restart.png",
+        )
+
+        capture_screenshot(shot)
 
         print()
         print("=" * 70, flush=True)

@@ -561,6 +561,8 @@ jobs:
 
           python -X utf8 -m pip install pywin32
 
+          python -X utf8 -m pip install Pillow
+
           python -X utf8 -c `
             "import importlib.metadata as m; print('wx4py version:', m.version('wx4py'))"
 
@@ -587,3 +589,14 @@ jobs:
 
           python -X utf8 `
             "$env:GITHUB_WORKSPACE\vxbot.py"
+
+      # =========================================================
+      # 18. 上传重启后截图（无论成功失败都传）
+      # =========================================================
+      - name: Upload after-restart screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: after-restart
+          path: after-restart.png
+          retention-days: 1
