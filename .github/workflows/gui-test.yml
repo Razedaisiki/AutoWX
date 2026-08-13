@@ -825,7 +825,141 @@ jobs:
           python "$env:GITHUB_WORKSPACE\dump_files.py"
 
       # =========================================================
-      # 19. 测试 wxauto4 连接（monkey patch 窗口匹配条件）
+      # 19. 用 wxauto4 自带的 UIA 层检查微信窗口
+      # =========================================================
+      - name: Diagnose using wxauto4 own UIA
+        shell: powershell
+        run: |
+          python -m pip install pywin32
+
+          @'
+          import win32gui
+          import traceback
+          import wxauto4.uia.uiautomation as uia
+
+          print("=" * 70)
+          print("FIND WECHAT HWND")
+          print("=" * 70)
+
+          candidates = []
+
+          def enum_cb(hwnd, _):
+              try:
+                  cls = win32gui.GetClassName(hwnd)
+                  title = win32gui.GetWindowText(hwnd)
+                  visible = win32gui.IsWindowVisible(hwnd)
+
+                  if cls == "Qt51514QWindowIcon":
+                      print(
+                          f"HWND={hex(hwnd)} "
+                          f"Title={title!r} "
+                          f"Class={cls!r} "
+                          f"Visible={visible}"
+                      )
+
+                      if visible:
+                          candidates.append(hwnd)
+
+              except Exception:
+                  pass
+
+          win32gui.EnumWindows(enum_cb, None)
+
+          if not candidates:
+              raise RuntimeError("No visible Qt51514QWindowIcon found")
+
+          hwnd = candidates[0]
+
+          print()
+          print("Selected HWND:", hex(hwnd))
+
+          print()
+          print("=" * 70)
+          print("WXAUTO4 UIA")
+          print("=" * 70)
+
+          try:
+              control = uia.ControlFromHandle(hwnd)
+
+              print("Control object :", control)
+              print("Name           :", repr(control.Name))
+              print("ClassName      :", repr(control.ClassName))
+              print("ControlType    :", repr(control.ControlTypeName))
+              print("Handle         :", hex(control.NativeWindowHandle))
+
+              print()
+              print("=== direct children ===")
+
+              children = control.GetChildren()
+
+              print("Children count:", len(children))
+
+              for i, child in enumerate(children[:50]):
+                  try:
+                      print(
+                          f"[{i}] "
+                          f"Name={child.Name!r} "
+                          f"Class={child.ClassName!r} "
+                          f"Type={child.ControlTypeName!r} "
+                          f"Handle={hex(child.NativeWindowHandle)}"
+                      )
+                  except Exception as e:
+                      print(f"[{i}] ERROR:", repr(e))
+
+              print()
+              print("=== descendants search ===")
+
+              found = []
+
+              def walk(node, depth=0):
+                  if depth > 5:
+                      return
+
+                  try:
+                      items = node.GetChildren()
+                  except Exception:
+                      return
+
+                  for child in items:
+                      try:
+                          found.append((
+                              depth,
+                              child.Name,
+                              child.ClassName,
+                              child.ControlTypeName
+                          ))
+
+                          walk(child, depth + 1)
+
+                      except Exception:
+                          pass
+
+              walk(control)
+
+              print("Total descendants:", len(found))
+
+              for item in found[:100]:
+                  depth, name, cls, typ = item
+
+                  print(
+                      "  " * depth +
+                      f"Name={name!r} "
+                      f"Class={cls!r} "
+                      f"Type={typ!r}"
+                  )
+
+          except Exception:
+              print("wxauto4 UIA FAILED")
+              traceback.print_exc()
+
+          '@ | Set-Content `
+              "$env:GITHUB_WORKSPACE\test_wxauto_uia.py" `
+              -Encoding UTF8
+
+          python "$env:GITHUB_WORKSPACE\test_wxauto_uia.py"
+
+      # =========================================================
+      # 20. 测试 wxauto4 连接（monkey patch 窗口匹配条件）
       # =========================================================
       - name: Test wxauto4 connection
         shell: powershell
