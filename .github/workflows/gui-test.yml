@@ -566,7 +566,163 @@ jobs:
           python -m pip show wxauto4
 
       # =========================================================
-      # 16. 测试 wxauto4 连接
+      # 16. 窗口体检：诊断 Win32 / UIA 视图
+      # =========================================================
+      - name: Diagnose WeChat window
+        shell: powershell
+        run: |
+          python -m pip install pywinauto psutil
+
+          @'
+          import ctypes
+          import psutil
+          from pywinauto import Desktop
+
+          print("=" * 70)
+          print("WECHAT PROCESS INFO")
+          print("=" * 70)
+
+          wechat_pids = []
+
+          for p in psutil.process_iter(
+              ["pid", "name", "exe", "username"]
+          ):
+              try:
+                  name = (p.info["name"] or "").lower()
+
+                  if "wechat" in name or "weixin" in name:
+                      pid = p.info["pid"]
+                      wechat_pids.append(pid)
+
+                      session = ctypes.c_ulong()
+
+                      ok = ctypes.windll.kernel32.ProcessIdToSessionId(
+                          pid,
+                          ctypes.byref(session)
+                      )
+
+                      print(
+                          f"PID={pid} "
+                          f"Name={p.info['name']} "
+                          f"Session={session.value if ok else '?'} "
+                          f"User={p.info['username']} "
+                          f"EXE={p.info['exe']}"
+                      )
+
+              except Exception as e:
+                  print("PROCESS ERROR:", repr(e))
+
+          print()
+          print("WeChat PIDs:", wechat_pids)
+
+          print()
+          print("=" * 70)
+          print("WIN32 WINDOWS")
+          print("=" * 70)
+
+          try:
+              windows = Desktop(
+                  backend="win32"
+              ).windows()
+
+              for w in windows:
+
+                  try:
+                      pid = w.process_id()
+
+                      if pid not in wechat_pids:
+                          continue
+
+                      print(
+                          f"PID={pid} "
+                          f"Handle={hex(w.handle)} "
+                          f"Title={w.window_text()!r} "
+                          f"Class={w.class_name()!r} "
+                          f"Visible={w.is_visible()} "
+                          f"Rect={w.rectangle()}"
+                      )
+
+                  except Exception as e:
+                      print("WIN32 WINDOW ERROR:", repr(e))
+
+          except Exception as e:
+              print("WIN32 BACKEND ERROR:", repr(e))
+
+          print()
+          print("=" * 70)
+          print("UI AUTOMATION WINDOWS")
+          print("=" * 70)
+
+          try:
+              windows = Desktop(
+                  backend="uia"
+              ).windows()
+
+              found = 0
+
+              for w in windows:
+
+                  try:
+                      pid = w.process_id()
+
+                      if pid not in wechat_pids:
+                          continue
+
+                      found += 1
+
+                      info = w.element_info
+
+                      print(
+                          f"PID={pid} "
+                          f"Handle={hex(w.handle)} "
+                          f"Title={w.window_text()!r} "
+                          f"Class={info.class_name!r} "
+                          f"ControlType={info.control_type!r} "
+                          f"Visible={w.is_visible()} "
+                          f"Rect={w.rectangle()}"
+                      )
+
+                      print("--- UIA children ---")
+
+                      children = w.descendants(depth=2)
+
+                      for child in children[:30]:
+
+                          try:
+                              ci = child.element_info
+
+                              print(
+                                  f"  Name={ci.name!r} "
+                                  f"Class={ci.class_name!r} "
+                                  f"Type={ci.control_type!r} "
+                                  f"AutoID={ci.automation_id!r}"
+                              )
+
+                          except Exception:
+                              pass
+
+                  except Exception as e:
+                      print("UIA WINDOW ERROR:", repr(e))
+
+              print()
+              print("UIA WeChat windows found:", found)
+
+          except Exception as e:
+              print("UIA BACKEND ERROR:", repr(e))
+
+          print()
+          print("=" * 70)
+          print("END")
+          print("=" * 70)
+
+          '@ | Set-Content `
+              "$env:GITHUB_WORKSPACE\diagnose_wechat.py" `
+              -Encoding UTF8
+
+          python "$env:GITHUB_WORKSPACE\diagnose_wechat.py"
+
+      # =========================================================
+      # 17. 测试 wxauto4 连接
       # =========================================================
       - name: Test wxauto4 connection
         shell: powershell
