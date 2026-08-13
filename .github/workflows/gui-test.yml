@@ -8,7 +8,7 @@ permissions:
 
 env:
   WECHAT_REPO: "cscnk52/wechat-windows-versions"
-  WECHAT_TAG: "v4.1.11.55"
+  WECHAT_VERSION: "4.1.8"
   GH_PROXY: "https://v4.gh-proxy.org/"
 
 jobs:
@@ -30,14 +30,14 @@ jobs:
 
 
       # =========================================================
-      # 2. 从 cscnk52 GitHub Release 获取真正的安装包 URL
+      # 2. 自动寻找最新的 4.1.8.x Release
       # =========================================================
-      - name: Resolve WeChat Release Asset
+      - name: Resolve latest WeChat 4.1.8 release
         shell: powershell
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $api = "https://api.github.com/repos/$env:WECHAT_REPO/releases/tags/$env:WECHAT_TAG"
+          $repo = $env:WECHAT_REPO
 
           $headers = @{
             "Accept"        = "application/vnd.github+json"
@@ -45,57 +45,73 @@ jobs:
             "User-Agent"    = "AutoWX"
           }
 
-          Write-Host "Fetching release:"
-          Write-Host $api
+          $all = @()
 
-          $release = Invoke-RestMethod `
-            -Uri $api `
-            -Headers $headers
+          for ($page = 1; $page -le 5; $page++) {
 
-          Write-Host ""
-          Write-Host "Release:"
-          Write-Host "Tag:  $($release.tag_name)"
-          Write-Host "Name: $($release.name)"
+            $api = "https://api.github.com/repos/$repo/releases?per_page=100&page=$page"
 
-          Write-Host ""
-          Write-Host "=== Assets ==="
+            $batch = Invoke-RestMethod `
+              -Uri $api `
+              -Headers $headers
 
-          foreach ($asset in $release.assets) {
-            Write-Host "--------------------------------"
-            Write-Host "Name: $($asset.name)"
-            Write-Host "Size: $($asset.size)"
-            Write-Host "URL:  $($asset.browser_download_url)"
+            if (-not $batch -or $batch.Count -eq 0) {
+              break
+            }
+
+            $all += $batch
           }
 
-          # 找 exe，优先最大的 exe 安装包
+          $release = $all |
+            Where-Object {
+              $_.tag_name -match '^v4\.1\.8\.'
+            } |
+            Sort-Object {
+              [version]($_.tag_name.TrimStart('v'))
+            } -Descending |
+            Select-Object -First 1
+
+          if (-not $release) {
+            throw "No WeChat 4.1.8.x release found."
+          }
+
+          Write-Host "Selected:"
+          Write-Host $release.tag_name
+          Write-Host $release.name
+
           $asset = $release.assets |
             Where-Object {
-              $_.name -match "\.exe$"
+              $_.name -match '\.exe$'
             } |
             Sort-Object size -Descending |
             Select-Object -First 1
 
           if (-not $asset) {
-            throw "No EXE asset found in release $env:WECHAT_TAG"
+            throw "No EXE asset found."
           }
 
-          $originalUrl = $asset.browser_download_url
-          $proxyUrl = "$env:GH_PROXY$originalUrl"
+          $original = $asset.browser_download_url
+          $proxy = "$env:GH_PROXY$original"
 
           Write-Host ""
-          Write-Host "======================================"
-          Write-Host "Selected asset:"
+          Write-Host "Asset:"
           Write-Host $asset.name
-          Write-Host ""
-          Write-Host "Original:"
-          Write-Host $originalUrl
-          Write-Host ""
-          Write-Host "Cloudflare v4:"
-          Write-Host $proxyUrl
-          Write-Host "======================================"
 
+          Write-Host ""
+          Write-Host "Proxy URL:"
+          Write-Host $proxy
+
+          "WECHAT_TAG=$($release.tag_name)" >> $env:GITHUB_ENV
           "WECHAT_FILENAME=$($asset.name)" >> $env:GITHUB_ENV
-          "WECHAT_PROXY_URL=$proxyUrl" >> $env:GITHUB_ENV
+          "WECHAT_PROXY_URL=$proxy" >> $env:GITHUB_ENV
+
+          # 如果 GitHub Asset 自带 digest，保存下来供校验
+          if ($asset.digest) {
+            Write-Host ""
+            Write-Host "GitHub asset digest:"
+            Write-Host $asset.digest
+            "WECHAT_DIGEST=$($asset.digest)" >> $env:GITHUB_ENV
+          }
 
 
       # =========================================================
@@ -140,33 +156,45 @@ jobs:
 
 
       # =========================================================
-      # 4. SHA256 校验
+      # 4. SHA256 校验（有 digest 则校验，否则仅打印）
       # =========================================================
       - name: Verify SHA256
         shell: powershell
         run: |
-          $expected = "c3032fedf2e4025bf7ef87504fd98e46d0fd6db4e5e82ea3d1d0b70e85143cd0"
-
           $actual = (
             Get-FileHash `
               $env:WECHAT_INSTALLER `
               -Algorithm SHA256
           ).Hash.ToLower()
 
-          Write-Host "Expected:"
-          Write-Host $expected
-
-          Write-Host ""
-          Write-Host "Actual:"
+          Write-Host "Actual SHA256:"
           Write-Host $actual
 
-          if ($actual -ne $expected) {
-            Remove-Item $env:WECHAT_INSTALLER -Force
-            throw "SHA256 mismatch! Installation aborted."
-          }
+          if ($env:WECHAT_DIGEST) {
 
-          Write-Host ""
-          Write-Host "SHA256 verification passed."
+            $expected = $env:WECHAT_DIGEST `
+              -replace "^sha256:", ""
+
+            $expected = $expected.ToLower()
+
+            Write-Host ""
+            Write-Host "Expected (from GitHub digest):"
+            Write-Host $expected
+
+            if ($actual -ne $expected) {
+              Remove-Item $env:WECHAT_INSTALLER -Force
+              throw "SHA256 mismatch! Installation aborted."
+            }
+
+            Write-Host ""
+            Write-Host "SHA256 verification passed."
+
+          } else {
+
+            Write-Host ""
+            Write-Host "No digest available from release asset."
+            Write-Host "Record the SHA256 above to pin it later."
+          }
 
 
       # =========================================================
