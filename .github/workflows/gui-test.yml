@@ -257,6 +257,54 @@ jobs:
           "WECHAT_EXE=$wechat" >> $env:GITHUB_ENV
 
       # =========================================================
+      # 6.5 启动前预配置微信无障碍（避免 wx4py 重启微信）
+      # =========================================================
+      - name: Configure WeChat accessibility
+        shell: powershell
+        run: |
+          Write-Host "=== Configure WeChat accessibility (pre-launch) ==="
+
+          # 1. 注册表：HKCU\SOFTWARE\Microsoft\Narrator\NoRoam\RunningState = 1
+          #    该值为 0 时 wx4py 会修复并重启微信，导致掉回登录页
+          reg add `
+            "HKCU\SOFTWARE\Microsoft\Narrator\NoRoam" `
+            /v RunningState `
+            /t REG_DWORD `
+            /d 1 `
+            /f
+
+          Write-Host "RunningState set to 1"
+
+          # 2. 屏幕阅读器标志：SPI_SETSCREENREADER
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+
+          public class SysParam {
+              [DllImport("user32.dll", SetLastError=true)]
+              public static extern bool SystemParametersInfoW(
+                  uint uiAction,
+                  uint uiParam,
+                  IntPtr pvParam,
+                  uint fWinIni
+              );
+          }
+          "@
+
+          $SPI_SETSCREENREADER = 0x0047
+          $SPIF_UPDATEINIFILE  = 0x01
+          $SPIF_SENDCHANGE     = 0x02
+
+          $ok = [SysParam]::SystemParametersInfoW(
+            $SPI_SETSCREENREADER,
+            1,
+            [IntPtr]::Zero,
+            ($SPIF_UPDATEINIFILE -bor $SPIF_SENDCHANGE)
+          )
+
+          Write-Host "Screen reader flag set: $ok"
+
+      # =========================================================
       # 7. 启动微信并动态等待窗口
       # =========================================================
       - name: Launch WeChat
