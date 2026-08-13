@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+import ctypes
 import traceback
 
 import win32gui
@@ -270,6 +271,32 @@ def wait_until_phone_logs_out(
 # VXBot
 # ============================================================
 
+def close_wechat_popup():
+    """关闭 wx4py 重启微信后可能再次出现的弹窗"""
+    try:
+        hwnd = find_wechat_window()
+        if not hwnd:
+            return
+
+        win32gui.SetForegroundWindow(hwnd)
+
+        # 给微信弹窗一点时间稳定下来
+        time.sleep(2)
+
+        user32 = ctypes.windll.user32
+
+        # ESC（按下 + 松开）
+        user32.keybd_event(0x1B, 0, 0, 0)
+        user32.keybd_event(0x1B, 0, 2, 0)
+
+        time.sleep(2)
+    except Exception as exc:
+        print(
+            f"[POPUP] close_wechat_popup warning: {exc!r}",
+            flush=True,
+        )
+
+
 def main():
 
     print("=" * 70, flush=True)
@@ -367,6 +394,17 @@ def main():
             raise RuntimeError(
                 "wx4py connection failed."
             )
+
+        # wx4py 可能因为 RunningState 自动重启微信，
+        # 重启后微信可能再次弹出更新/提示窗口。
+        print(
+            "Waiting for WeChat restart popup...",
+            flush=True,
+        )
+
+        time.sleep(3)
+
+        close_wechat_popup()
 
         print()
         print("=" * 70, flush=True)
