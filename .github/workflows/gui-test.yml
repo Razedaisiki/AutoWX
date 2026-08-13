@@ -825,18 +825,34 @@ jobs:
           python "$env:GITHUB_WORKSPACE\dump_files.py"
 
       # =========================================================
-      # 19. 测试 wxauto4 连接
+      # 19. 测试 wxauto4 连接（monkey patch 窗口匹配条件）
       # =========================================================
       - name: Test wxauto4 connection
         shell: powershell
         run: |
           @'
           from wxauto4 import WeChat
+          from wxauto4.ui.main import WeChatMainWnd
           import traceback
           import time
 
           print("Waiting for WeChat UI...", flush=True)
           time.sleep(3)
+
+          print("=== BEFORE patch ===", flush=True)
+          print("_ui_cls_name :", WeChatMainWnd._ui_cls_name, flush=True)
+          print("_win_cls_name:", WeChatMainWnd._win_cls_name, flush=True)
+          print("_ui_name     :", WeChatMainWnd._ui_name, flush=True)
+
+          # 把 wxauto4 期待的窗口条件 patch 成 GitHub runner 实际暴露的值
+          WeChatMainWnd._ui_cls_name = "Qt51514QWindowIcon"
+          WeChatMainWnd._win_cls_name = "Qt51514QWindowIcon"
+          WeChatMainWnd._ui_name = "Weixin"
+
+          print("=== AFTER patch ===", flush=True)
+          print("_ui_cls_name :", WeChatMainWnd._ui_cls_name, flush=True)
+          print("_win_cls_name:", WeChatMainWnd._win_cls_name, flush=True)
+          print("_ui_name     :", WeChatMainWnd._ui_name, flush=True)
 
           try:
               print("Initializing wxauto4...", flush=True)
