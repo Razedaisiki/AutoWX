@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+import logging
 import threading
 import traceback
 
@@ -390,6 +391,16 @@ def main():
     )
 
     screenshot_thread.start()
+
+    # 临时调试：每条 logging 日志后暂停 3 秒，
+    # 让截图线程能拍到每一步 UI 变化（调试完必须删）
+    original_log = logging.Logger._log
+
+    def slow_log(self, level, msg, args, *a, **kw):
+        original_log(self, level, msg, args, *a, **kw)
+        time.sleep(3)
+
+    logging.Logger._log = slow_log
 
     with WeChatClient(
         auto_connect=True
