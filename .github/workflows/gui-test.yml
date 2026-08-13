@@ -470,7 +470,62 @@ jobs:
           retention-days: 1
 
       # =========================================================
-      # 14. 安装 wxauto4
+      # 14. 关闭微信更新说明弹窗
+      # =========================================================
+      - name: Normalize WeChat window
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+
+          public class Win32 {
+              [DllImport("user32.dll")]
+              public static extern bool SetForegroundWindow(IntPtr hWnd);
+          }
+          "@
+
+          Write-Host "=== BEFORE ==="
+
+          Get-Process |
+            Where-Object {
+              $_.ProcessName -match "Weixin|WeChat"
+            } |
+            ForEach-Object {
+              $_.Refresh()
+
+              Write-Host (
+                "PID={0} Process={1} Title='{2}' Handle={3}" -f `
+                $_.Id,
+                $_.ProcessName,
+                $_.MainWindowTitle,
+                $_.MainWindowHandle
+              )
+            }
+
+          $p = Get-Process |
+            Where-Object {
+              $_.ProcessName -match "Weixin|WeChat" -and
+              $_.MainWindowHandle -ne 0
+            } |
+            Select-Object -First 1
+
+          if ($p) {
+              [Win32]::SetForegroundWindow(
+                  $p.MainWindowHandle
+              ) | Out-Null
+
+              Start-Sleep -Seconds 1
+
+              [System.Windows.Forms.SendKeys]::SendWait("{ESC}")
+
+              Start-Sleep -Seconds 2
+          }
+
+      # =========================================================
+      # 15. 安装 wxauto4
       # =========================================================
       - name: Install wxauto4
         shell: powershell
@@ -483,7 +538,7 @@ jobs:
           python -m pip show wxauto4
 
       # =========================================================
-      # 15. 测试 wxauto4 连接
+      # 16. 测试 wxauto4 连接
       # =========================================================
       - name: Test wxauto4 connection
         shell: powershell
@@ -491,31 +546,30 @@ jobs:
           @'
           from wxauto4 import WeChat
           import traceback
+          import time
 
-          print("Initializing wxauto4...", flush=True)
+          print("Waiting for WeChat UI...", flush=True)
+          time.sleep(3)
 
           try:
-              wx = WeChat()
+              print("Initializing wxauto4...", flush=True)
 
-              print("SUCCESS: WeChat() initialized", flush=True)
+              wx = WeChat(ads=False)
+
+              print("SUCCESS: wxauto4 connected", flush=True)
 
               msgs = wx.GetAllMessage()
 
-              print(f"Messages found: {len(msgs)}", flush=True)
+              print("Messages:", len(msgs), flush=True)
 
               for msg in msgs[-10:]:
-                  sender = getattr(msg, "sender", "")
-                  content = getattr(msg, "content", "")
-                  msg_type = getattr(msg, "type", "")
-
                   print(
-                      f"type={msg_type} sender={sender} content={content}",
+                      getattr(msg, "sender", ""),
+                      getattr(msg, "content", ""),
                       flush=True
                   )
 
-          except Exception as e:
-              print("WXAUTO4 TEST FAILED", flush=True)
-              print(repr(e), flush=True)
+          except Exception:
               traceback.print_exc()
               raise
           '@ | Set-Content `
