@@ -566,7 +566,62 @@ jobs:
           python -m pip show wxauto4
 
       # =========================================================
-      # 16. 窗口体检：诊断 Win32 / UIA 视图
+      # 16. 打印已安装的 wxauto4 源码
+      # =========================================================
+      - name: Dump installed wxauto4 source
+        shell: powershell
+        run: |
+          @'
+          import inspect
+          import wxauto4
+          import wxauto4.ui.main
+          import wxauto4.wx
+
+          print("=" * 70)
+          print("wxauto4 location")
+          print("=" * 70)
+          print(wxauto4.__file__)
+
+          print()
+          print("=" * 70)
+          print("ui.main location")
+          print("=" * 70)
+          print(inspect.getsourcefile(wxauto4.ui.main))
+
+          print()
+          print("=" * 70)
+          print("Classes in ui.main")
+          print("=" * 70)
+
+          for name in dir(wxauto4.ui.main):
+              if "WeChat" in name:
+                  obj = getattr(wxauto4.ui.main, name)
+
+                  if inspect.isclass(obj):
+                      print()
+                      print("###", name)
+
+                      try:
+                          print(inspect.getsource(obj.__init__))
+                      except Exception as e:
+                          print("Cannot read source:", repr(e))
+
+          print()
+          print("=" * 70)
+          print("wx.WeChat init")
+          print("=" * 70)
+
+          try:
+              print(inspect.getsource(wxauto4.wx.WeChat.__init__))
+          except Exception as e:
+              print("Cannot read source:", repr(e))
+
+          '@ | Set-Content dump_wxauto.py -Encoding UTF8
+
+          python dump_wxauto.py
+
+      # =========================================================
+      # 17. 窗口体检：诊断 Win32 / UIA 视图
       # =========================================================
       - name: Diagnose WeChat window
         shell: powershell
@@ -722,7 +777,7 @@ jobs:
           python "$env:GITHUB_WORKSPACE\diagnose_wechat.py"
 
       # =========================================================
-      # 17. 测试 wxauto4 连接
+      # 18. 测试 wxauto4 连接
       # =========================================================
       - name: Test wxauto4 connection
         shell: powershell
