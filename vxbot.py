@@ -437,24 +437,6 @@ def main():
 
         time.sleep(5)
 
-        # 临时调试：输入搜索词后额外等待 5 秒，
-        # 观察搜索结果是否只是"出现得慢"而非"解析不了"
-        original_input_search = wx.chat_window._input_search
-
-        def slow_input_search(keyword):
-            ok = original_input_search(keyword)
-
-            if ok:
-                print(
-                    f"Search input done: {keyword}, waiting 5s...",
-                    flush=True,
-                )
-                time.sleep(5)
-
-            return ok
-
-        wx.chat_window._input_search = slow_input_search
-
         # ====================================================
         # 非阻塞启动群监听
         # ====================================================
