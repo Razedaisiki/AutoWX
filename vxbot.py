@@ -382,7 +382,7 @@ def main():
             model="mimo-v2.5",
             api_key=api_key,
             enable_thinking=False,
-            max_tokens=300,
+            max_tokens=1000,
             system_prompt=(
                 "你是一个联网搜索路由器。\n\n"
                 "判断用户的问题是否需要查询互联网。\n\n"
