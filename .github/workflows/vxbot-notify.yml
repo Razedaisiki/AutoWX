@@ -1,0 +1,106 @@
+name: VXBot Telegram Notify
+
+on:
+  workflow_run:
+    workflows:
+      - VXBot
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Download error logs
+        if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+
+        run: |
+          mkdir -p logs
+
+          curl -L -sS \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/$RUN_ID/logs" \
+            -o logs.zip || true
+
+          if [ -s logs.zip ]; then
+            unzip -q logs.zip -d logs || true
+
+            grep -R -h -E \
+              "ERROR|RuntimeError|Traceback|fatal error|Exception|Error:" \
+              logs \
+              | tail -n 20 \
+              > error-snippet.txt || true
+          fi
+
+
+      - name: Send Telegram notification
+
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+
+        run: |
+          case "$CONCLUSION" in
+
+            success)
+              TITLE="🛑 VXBot 已正常结束"
+              ;;
+
+            failure)
+              TITLE="❌ VXBot 运行失败"
+              ;;
+
+            cancelled)
+              TITLE="⚠️ VXBot 已被取消"
+              ;;
+
+            *)
+              TITLE="ℹ️ VXBot 已结束：$CONCLUSION"
+              ;;
+
+          esac
+
+          DETAIL=""
+
+          if [ -s error-snippet.txt ]; then
+            DETAIL=$(tail -c 2500 error-snippet.txt)
+          fi
+
+          TEXT="$TITLE
+
+          Run #$RUN_NUMBER"
+
+          if [ -n "$DETAIL" ]; then
+            TEXT="$TEXT
+
+          错误摘要：
+          $DETAIL"
+          fi
+
+          TEXT="$TEXT
+
+          完整日志：
+          $RUN_URL"
+
+          curl -f -sS \
+            -X POST \
+            "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -d "chat_id=$TELEGRAM_CHAT_ID" \
+            --data-urlencode "text=$TEXT"

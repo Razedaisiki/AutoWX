@@ -383,6 +383,34 @@ jobs:
           Write-Host "Login screenshot saved."
 
       # =========================================================
+      # 8.5 二维码发到 Telegram
+      # =========================================================
+      - name: Send login QR to Telegram
+        shell: powershell
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          Set-Location $env:GITHUB_WORKSPACE
+
+          Write-Host "Sending WeChat QR to Telegram..."
+
+          curl.exe `
+            -f `
+            -sS `
+            -X POST `
+            "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendPhoto" `
+            -F "chat_id=$env:TELEGRAM_CHAT_ID" `
+            -F "caption=AutoWX 微信登录二维码 - Run #${{ github.run_number }}" `
+            -F "photo=@wechat-login.png"
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "Failed to send WeChat QR to Telegram."
+          }
+
+          Write-Host "QR sent to Telegram."
+
+      # =========================================================
       # 9. 上传二维码
       # =========================================================
       - name: Upload login QR
@@ -491,6 +519,25 @@ jobs:
           }
 
           Start-Sleep -Seconds 3
+
+      # =========================================================
+      # 11.5 通知 Telegram 登录成功
+      # =========================================================
+      - name: Notify Telegram login success
+        shell: powershell
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          $text = "✅ 微信登录成功，VXBot 正在启动。Run #${{ github.run_number }}"
+
+          curl.exe `
+            -f `
+            -sS `
+            -X POST `
+            "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendMessage" `
+            -d "chat_id=$env:TELEGRAM_CHAT_ID" `
+            --data-urlencode "text=$text"
 
       # =========================================================
       # 12. 关闭可能的弹窗
