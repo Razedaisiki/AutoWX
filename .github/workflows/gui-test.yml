@@ -396,7 +396,6 @@ jobs:
           Write-Host "Sending WeChat QR to Telegram..."
 
           curl.exe `
-            -f `
             -sS `
             -X POST `
             "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendPhoto" `
