@@ -23,8 +23,9 @@ env:
   MODEL_API_BASE: ${{ vars.MODEL_API_BASE }}
   MODEL_NAME: ${{ vars.MODEL_NAME }}
   VX_GROUPS_JSON: ${{ vars.VX_GROUPS_JSON }}
+  TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
 
-  BOT_CONTEXT_SIZE: "8"
+  BOT_CONTEXT_SIZE: "10"
 
 jobs:
   wechat-test:
@@ -610,6 +611,8 @@ jobs:
           python -X utf8 -m pip install pywin32
 
           python -X utf8 -m pip install Pillow
+
+          python -X utf8 -m pip install tavily-python
 
           python -X utf8 -c `
             "import importlib.metadata as m; print('wx4py version:', m.version('wx4py'))"
