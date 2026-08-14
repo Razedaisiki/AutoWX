@@ -424,14 +424,21 @@ def main():
         # 非阻塞启动群监听
         # ====================================================
 
+        bot_nickname = os.environ.get("BOT_NICKNAME", "").strip()
+
+        # 若配置了机器人群昵称，则固定传入（跳过 wx4py 打开群读昵称，
+        # 避免因读昵称再次触发搜索）；否则传 None 让 wx4py 自动读取。
+        group_nicknames = (
+            {group: bot_nickname for group in groups}
+            if bot_nickname
+            else None
+        )
+
         processor = wx.process_groups(
             groups,
             [handler],
             block=False,
-            group_nicknames={
-                group: "bot"
-                for group in groups
-            },
+            group_nicknames=group_nicknames,
         )
 
         wait_until_phone_logs_out(

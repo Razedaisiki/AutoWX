@@ -23,6 +23,7 @@ env:
   MODEL_API_BASE: ${{ vars.MODEL_API_BASE }}
   MODEL_NAME: ${{ vars.MODEL_NAME }}
   VX_GROUPS_JSON: ${{ vars.VX_GROUPS_JSON }}
+  BOT_NICKNAME: ${{ vars.BOT_NICKNAME }}
 
   BOT_CONTEXT_SIZE: "8"
 
