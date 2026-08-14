@@ -414,8 +414,11 @@ def main():
                     "[DEBUG] open_chat returned False, forcing True",
                     flush=True,
                 )
-                return True
 
+                time.sleep(3)
+                
+                return True
+            
             return result
 
         wx.chat_window.open_chat = debug_open_chat
