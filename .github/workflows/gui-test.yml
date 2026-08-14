@@ -56,7 +56,7 @@ jobs:
       - name: Resolve latest WeChat 4.1.8 release
         shell: powershell
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TOKEN_GITHUB }}
         run: |
           $repo = $env:WECHAT_REPO
 
