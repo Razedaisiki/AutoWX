@@ -1,13 +1,28 @@
 """Tavily 联网搜索。"""
 from __future__ import annotations
 
-from tavily import TavilyClient
+
+def format_search_context(results) -> str:
+    """把搜索结果的 title/content/url 拼成上下文文本。"""
+    context = []
+
+    for index, item in enumerate(results, start=1):
+        context.append(
+            f"[{index}] {item.get('title', '')}\n"
+            f"{item.get('content', '')}\n"
+            f"来源: {item.get('url', '')}"
+        )
+
+    return "\n\n".join(context)
 
 
 class TavilySearch:
     """封装 Tavily，返回格式化后的搜索上下文。"""
 
     def __init__(self, api_key: str, max_results: int = 5):
+        # 延迟 import，方便在没有 tavily 的环境下单测 format_search_context
+        from tavily import TavilyClient
+
         self._client = TavilyClient(api_key=api_key)
         self._max_results = max_results
 
@@ -30,13 +45,4 @@ class TavilySearch:
             else getattr(result, "results", []) or []
         )
 
-        context = []
-
-        for index, item in enumerate(results, start=1):
-            context.append(
-                f"[{index}] {item.get('title', '')}\n"
-                f"{item.get('content', '')}\n"
-                f"来源: {item.get('url', '')}"
-            )
-
-        return "\n\n".join(context)
+        return format_search_context(results)

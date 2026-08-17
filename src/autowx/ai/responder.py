@@ -5,8 +5,6 @@ WebAwareChat，交给 wx4py 的 AIResponder 使用。
 """
 from __future__ import annotations
 
-from wx4py import AIResponder
-
 from .prompts import WEB_CONTEXT_PROMPT
 from .router import SearchDecision, decide_web_search, should_force_search
 from .search import TavilySearch
@@ -80,6 +78,9 @@ class WebAwareChat:
 
 def build_responder(config, answer_client, router_ai, search_provider):
     """组装 wx4py 的 AIResponder。"""
+    # 延迟 import，方便在没有 wx4py 的环境下单测 WebAwareChat
+    from wx4py import AIResponder
+
     chat = WebAwareChat(answer_client, router_ai, search_provider)
 
     return AIResponder(
