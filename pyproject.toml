@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autowx"
+version = "0.1.0"
+description = "WeChat group bot with web search (wx4py + MiMo router + Tavily)"
+requires-python = ">=3.12"
+dependencies = [
+    "wx4py==0.2.1",
+    "pywin32",
+    "tavily-python",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
