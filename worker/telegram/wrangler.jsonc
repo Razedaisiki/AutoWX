@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "autowx-telegram",
+  "main": "src/index.js",
+  "compatibility_date": "2026-01-01",
+
+  "vars": {
+    "ALLOWED_CHAT_ID": "",
+    "OWNER_GITHUB": "Razedaisiki",
+    "REPO_GITHUB": "AutoWX",
+    "WORKFLOW_GITHUB": "vxbot.yml",
+    "REF_GITHUB": "main"
+  }
+}
